@@ -1,0 +1,19 @@
+{
+    "email": {
+      "user": "asmingxia@163.com",
+      "pass": "RC2LnEWmZVFKkba9"
+    },
+
+    "mysql":{
+        "host": "localhost",
+        "port": 3306,
+        "user": "root",
+        "pass": 123456
+    },
+    "redis": {
+        "host": "192.168.145.139",
+        "port": 6380,
+        "passwd": 123456
+    }
+}
+
