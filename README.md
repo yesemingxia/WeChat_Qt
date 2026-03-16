@@ -266,10 +266,6 @@
 **用途**  
 Qt 客户端 UI，负责用户注册/登录/重置密码，并与 ChatServer 建立 TCP 聊天连接。
 
-**图片占位**  
-在此处放置 [Image #1] 图片。  
-<!-- Image Placeholder: [Image #1] -->
-![Image #1](./assets/image-1.png)
 
 ## 启动流程
 - `main.cpp` 读取 `config.ini` 中 `GateServer.host/port`，组装 `gate_url_prefix`
