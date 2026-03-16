@@ -110,10 +110,6 @@
 **用途**  
 提供 gRPC 接口生成并发送邮箱验证码，依赖 Redis 缓存验证码并设置过期时间。
 
-**图片占位**  
-在此处放置 [Image #1] 图片。  
-<!-- Image Placeholder: [Image #1] -->
-![Image #1](./assets/image-1.png)
 
 ## 核心逻辑
 - 入口：`server.js`
@@ -162,10 +158,6 @@
 **用途**  
 负责 TCP 长连接聊天、消息路由、好友申请/认证、文本消息转发，并提供 gRPC 给其他 ChatServer 做跨服消息通知。
 
-**图片占位**  
-在此处放置 [Image #1] 图片。  
-<!-- Image Placeholder: [Image #1] -->
-![Image #1](./assets/image-1.png)
 
 ## 核心组件
 - `ChatServer.cpp`: 启动 TCP 服务 + gRPC 服务
@@ -237,10 +229,6 @@
 **用途**  
 提供 gRPC 服务，用于分配 ChatServer 和校验登录 token。
 
-**图片占位**  
-在此处放置 [Image #1] 图片。  
-<!-- Image Placeholder: [Image #1] -->
-![Image #1](./assets/image-1.png)
 
 ## 核心逻辑
 - `GetChatServer`
