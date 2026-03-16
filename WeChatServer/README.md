@@ -3,11 +3,7 @@
 **用途**  
 该文档用于直观说明 `WeChatServer` 的 Gate 服务器做什么、请求如何流转、有哪些接口，以及它与 Redis/MySQL/gRPC 的关系。
 
-**图片占位**  
-在此处放置 [Image #1] 图片。  
-<!-- Image Placeholder: [Image #1] -->
-![Image #1](./assets/image-1.png)
-
+![alt text](cuiruonilan.png)
 ---
 
 ## 一句话概览
