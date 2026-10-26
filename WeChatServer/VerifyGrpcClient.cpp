@@ -28,7 +28,7 @@ VerifyGrpcClient::VerifyGrpcClient()
 }
 
 RPConPool::RPConPool(std::size_t poolSize, std::string host, std::string port):
-_poolSize(poolSize),_host(host),_port(port)
+_poolSize(poolSize),_host(host),_port(port),b_stop(false)
 {
 	for (std::size_t i = 0; i < poolSize; i++) {
 		std::shared_ptr<Channel> channel = grpc::CreateChannel(host +":"+port,

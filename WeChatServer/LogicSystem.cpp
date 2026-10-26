@@ -34,6 +34,20 @@ void LogicSystem::RegPost(std::string url, HttpHandler handler)
 }
 
 LogicSystem::LogicSystem() {
+	auto write_json_error_and_check_string_field = [](
+		const Json::Value& src_root,
+		const char* field_name,
+		Json::Value& root,
+		const std::shared_ptr<HttpConnection>& connection) -> bool {
+		if (!src_root.isMember(field_name) || !src_root[field_name].isString()) {
+			root["error"] = ErrorCodes::Error_Json;
+			std::string jsonstr = root.toStyledString();
+			beast::ostream(connection->_response.body()) << jsonstr;
+			return false;
+		}
+		return true;
+		};
+
 	RegGet("/get_test", [](std::shared_ptr<HttpConnection> connection) {
 		int i = 0;
 		for (auto& elem : connection->_get_params) {
@@ -46,7 +60,7 @@ LogicSystem::LogicSystem() {
 
 
 
-	RegPost("/get_varifycode", [](std::shared_ptr<HttpConnection> connection) {
+	RegPost("/get_varifycode", [write_json_error_and_check_string_field](std::shared_ptr<HttpConnection> connection) {
 		auto body_str = boost::beast::buffers_to_string(connection->_request.body().data());
 		std::cout << "receive body is" << body_str << std::endl;
 		connection->_response.set(http::field::content_type,"text/json");
@@ -59,13 +73,12 @@ LogicSystem::LogicSystem() {
 			root["error"] = ErrorCodes::Error_Json;
 			std::string jsonstr = root.toStyledString();
 			beast::ostream(connection->_response.body()) << jsonstr;
+			return;
 		}
 
-		if (!src_root.isMember("email")) {
+		if (!write_json_error_and_check_string_field(src_root, "email", root, connection)) {
 			std::cout << "Failed to parse JSON data !" << std::endl;
-			root["error"] = ErrorCodes::Error_Json;
-			std::string jsonstr = root.toStyledString();
-			beast::ostream(connection->_response.body()) << jsonstr;
+			return;
 		}
 
 		auto email = src_root["email"].asString();
@@ -77,7 +90,7 @@ LogicSystem::LogicSystem() {
 		beast::ostream(connection->_response.body()) << jsonstr;
 		}); 
 
-    RegPost("/user_register", [](std::shared_ptr<HttpConnection> connection) {
+    RegPost("/user_register", [write_json_error_and_check_string_field](std::shared_ptr<HttpConnection> connection) {
     auto body_str = boost::beast::buffers_to_string(connection->_request.body().data());
     std::cout << "receive body is " << body_str << std::endl;
     connection->_response.set(http::field::content_type, "text/json");
@@ -90,7 +103,15 @@ LogicSystem::LogicSystem() {
         root["error"] = ErrorCodes::Error_Json;
         std::string jsonstr = root.toStyledString();
         beast::ostream(connection->_response.body()) << jsonstr;
-        return true;
+        return;
+    }
+
+    if (!write_json_error_and_check_string_field(src_root, "email", root, connection) ||
+        !write_json_error_and_check_string_field(src_root, "user", root, connection) ||
+        !write_json_error_and_check_string_field(src_root, "passwd", root, connection) ||
+        !write_json_error_and_check_string_field(src_root, "confirm", root, connection) ||
+        !write_json_error_and_check_string_field(src_root, "varifycode", root, connection)) {
+        return;
     }
 
     auto email = src_root["email"].asString();
@@ -103,7 +124,7 @@ LogicSystem::LogicSystem() {
         root["error"] = ErrorCodes::PasswdErr;
         std::string jsonstr = root.toStyledString();
         beast::ostream(connection->_response.body()) << jsonstr;
-        return true;
+        return;
     }
 
     //先查找redis中email对应的验证码是否合理
@@ -114,7 +135,7 @@ LogicSystem::LogicSystem() {
         root["error"] = ErrorCodes::VarifyExpired;
         std::string jsonstr = root.toStyledString();
         beast::ostream(connection->_response.body()) << jsonstr;
-        return true;
+        return;
     }
 
     if (varify_code != src_root["varifycode"].asString()) {
@@ -122,7 +143,7 @@ LogicSystem::LogicSystem() {
         root["error"] = ErrorCodes::VarifyCodeErr;
         std::string jsonstr = root.toStyledString();
         beast::ostream(connection->_response.body()) << jsonstr;
-        return true;
+        return;
     }
 
     //查找数据库判断用户是否存在
@@ -132,7 +153,7 @@ LogicSystem::LogicSystem() {
         root["error"] = ErrorCodes::UserExist;
         std::string jsonstr = root.toStyledString();
         beast::ostream(connection->_response.body()) << jsonstr;
-        return true;
+        return;
     }
     root["error"] = 0;
     root["uid"] = uid;
@@ -143,11 +164,10 @@ LogicSystem::LogicSystem() {
     root["varifycode"] = src_root["varifycode"].asString();
     std::string jsonstr = root.toStyledString();
     beast::ostream(connection->_response.body()) << jsonstr;
-    return true;
     });
    
     //重置回调逻辑
-    RegPost("/reset_pwd", [](std::shared_ptr<HttpConnection> connection) {
+    RegPost("/reset_pwd", [write_json_error_and_check_string_field](std::shared_ptr<HttpConnection> connection) {
         auto body_str = boost::beast::buffers_to_string(connection->_request.body().data());
         std::cout << "receive body is " << body_str << std::endl;
         connection->_response.set(http::field::content_type, "text/json");
@@ -160,7 +180,13 @@ LogicSystem::LogicSystem() {
             root["error"] = ErrorCodes::Error_Json;
             std::string jsonstr = root.toStyledString();
             beast::ostream(connection->_response.body()) << jsonstr;
-            return true;
+            return;
+        }
+        if (!write_json_error_and_check_string_field(src_root, "email", root, connection) ||
+            !write_json_error_and_check_string_field(src_root, "user", root, connection) ||
+            !write_json_error_and_check_string_field(src_root, "passwd", root, connection) ||
+            !write_json_error_and_check_string_field(src_root, "varifycode", root, connection)) {
+            return;
         }
         auto email = src_root["email"].asString();
         auto name = src_root["user"].asString();
@@ -173,14 +199,14 @@ LogicSystem::LogicSystem() {
             root["error"] = ErrorCodes::VarifyExpired;
             std::string jsonstr = root.toStyledString();
             beast::ostream(connection->_response.body()) << jsonstr;
-            return true;
+            return;
         }
         if (varify_code != src_root["varifycode"].asString()) {
             std::cout << " varify code error" << std::endl;
             root["error"] = ErrorCodes::VarifyCodeErr;
             std::string jsonstr = root.toStyledString();
             beast::ostream(connection->_response.body()) << jsonstr;
-            return true;
+            return;
         }
         //查询数据库判断用户名和邮箱是否匹配    
         bool email_valid = MysqlMgr::GetInstance()->CheckEmail(name, email);
@@ -189,7 +215,7 @@ LogicSystem::LogicSystem() {
             root["error"] = ErrorCodes::EmailNotMatch;
             std::string jsonstr = root.toStyledString();
             beast::ostream(connection->_response.body()) << jsonstr;
-            return true;
+            return;
         }
         //更新密码为最新密码    
         bool b_up = MysqlMgr::GetInstance()->UpdatePwd(name, pwd);
@@ -198,7 +224,7 @@ LogicSystem::LogicSystem() {
             root["error"] = ErrorCodes::PasswdUpFailed;
             std::string jsonstr = root.toStyledString();
             beast::ostream(connection->_response.body()) << jsonstr;
-            return true;
+            return;
         }
         std::cout << "succeed to update password" << pwd << std::endl;
         root["error"] = 0;
@@ -208,11 +234,10 @@ LogicSystem::LogicSystem() {
         root["varifycode"] = src_root["varifycode"].asString();
         std::string jsonstr = root.toStyledString();
         beast::ostream(connection->_response.body()) << jsonstr;
-        return true;
         });
 
     //用户登录逻辑
-    RegPost("/user_login", [](std::shared_ptr<HttpConnection> connection) {
+    RegPost("/user_login", [write_json_error_and_check_string_field](std::shared_ptr<HttpConnection> connection) {
         auto body_str = boost::beast::buffers_to_string(connection->_request.body().data());
         std::cout << "receive body is " << body_str << std::endl;
         connection->_response.set(http::field::content_type, "text/json");
@@ -225,7 +250,11 @@ LogicSystem::LogicSystem() {
             root["error"] = ErrorCodes::Error_Json;
             std::string jsonstr = root.toStyledString();
             beast::ostream(connection->_response.body()) << jsonstr;
-            return true;
+            return;
+        }
+        if (!write_json_error_and_check_string_field(src_root, "user", root, connection) ||
+            !write_json_error_and_check_string_field(src_root, "passwd", root, connection)) {
+            return;
         }
 
         auto name = src_root["user"].asString();
@@ -235,10 +264,10 @@ LogicSystem::LogicSystem() {
         bool pwd_valid = MysqlMgr::GetInstance()->CheckPwd(name, pwd, userInfo);
         if (!pwd_valid) {
             std::cout << " user pwd not match" << std::endl;
-            root["error"] = ErrorCodes::PasswdInvalid;
+            root["error"] = ErrorCodes::LoginInvalid;
             std::string jsonstr = root.toStyledString();
             beast::ostream(connection->_response.body()) << jsonstr;
-            return true;
+            return;
         }
 
         //查询StatusServer找到合适的连接
@@ -248,7 +277,7 @@ LogicSystem::LogicSystem() {
             root["error"] = ErrorCodes::RPCGetFailed;
             std::string jsonstr = root.toStyledString();
             beast::ostream(connection->_response.body()) << jsonstr;
-            return true;
+            return;
         }
 
         std::cout << "succeed to load userinfo uid is " << userInfo.uid << std::endl;
@@ -257,9 +286,9 @@ LogicSystem::LogicSystem() {
         root["uid"] = userInfo.uid;
         root["token"] = reply.token();
         root["host"] = reply.host();
+        root["port"] = reply.port();
         root["Port"] = reply.port();
         std::string jsonstr = root.toStyledString();
         beast::ostream(connection->_response.body()) << jsonstr;
-        return true;
         });
 }

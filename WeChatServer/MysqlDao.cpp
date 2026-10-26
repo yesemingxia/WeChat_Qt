@@ -27,6 +27,7 @@ MysqlDao::~MysqlDao() {
     }
 }
 
+// 注册用户
 int MysqlDao::RegUser(const std::string& name,
     const std::string& email,
     const std::string& pwd)
@@ -82,10 +83,12 @@ bool MysqlDao::CheckEmail(const std::string& name, const std::string& email) {
             }
             return true;
         }
+        pool_->returnConnection(std::move(con));
         return false;
     }
     catch (const mysqlx::Error& e) {
         std::cerr << "MySQL Error: " << e.what() << std::endl;
+        pool_->returnConnection(std::move(con));
         return false;
     }
 }
@@ -102,10 +105,12 @@ bool MysqlDao::UpdatePwd(const std::string& name, const std::string& newpwd) {
             .execute();
 
         std::cout << "Updated rows: " << result.getAffectedItemsCount() << std::endl;
+        pool_->returnConnection(std::move(con));
         return true;
     }
     catch (const mysqlx::Error& e) {
         std::cerr << "MySQL Error: " << e.what() << std::endl;
+        pool_->returnConnection(std::move(con));
         return false;
     }
 }
@@ -159,10 +164,12 @@ bool MysqlDao::CheckPwd(const std::string& name, const std::string& pwd, UserInf
     catch (const mysqlx::Error& e) {
         std::cerr << "MySQL X DevAPI Error: " << e.what()
             << " (Code: " << e.what() << ")" << std::endl;
+        pool_->returnConnection(std::move(con));
         return false;
     }
     catch (const std::exception& e) {
         std::cerr << "Standard Exception: " << e.what() << std::endl;
+        pool_->returnConnection(std::move(con));
         return false;
     }
 }

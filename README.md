@@ -141,7 +141,7 @@
 
 ## 运行与操作
 - 安装依赖：`npm install`
-- 配置 `config.json` 中的邮箱、Redis 信息
+- 配置 `config.json` 中的邮箱、Redis 信息（首次使用：复制 `config.example.json` 为 `config.json` 并填入自己的信息）
 - 启动服务：`node server.js`
 
 ## 相关文件索引
@@ -157,6 +157,8 @@
 
 **用途**  
 负责 TCP 长连接聊天、消息路由、好友申请/认证、文本消息转发，并提供 gRPC 给其他 ChatServer 做跨服消息通知。
+
+**ChatServer2**：与其代码逻辑完全一致，仅 `config/config.ini` 不同（作为 chatserver2 实例，端口 8091 / 50056）。
 
 
 ## 核心组件
@@ -269,7 +271,7 @@ Qt 客户端 UI，负责用户注册/登录/重置密码，并与 ChatServer 建
 **图片占位**  
 在此处放置 [Image #1] 图片。  
 <!-- Image Placeholder: [Image #1] -->
-![Image #1](./assets/image-1.png)
+![Image #1](./cuiruonilan.png)
 
 ## 启动流程
 - `main.cpp` 读取 `config.ini` 中 `GateServer.host/port`，组装 `gate_url_prefix`

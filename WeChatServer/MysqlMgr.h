@@ -1,7 +1,6 @@
 ﻿#pragma once
 #include "const.h"
 #include "MysqlDao.h"
-#include <rpcasync.h>
 
 class MysqlMgr : public Singleton<MysqlMgr>
 {

@@ -1,0 +1,18 @@
+{
+  "email": {
+    "user": "your_email@163.com",
+    "pass": "your_smtp_auth_code"
+  },
+
+  "mysql": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "pass": "your_mysql_password"
+  },
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 6379,
+    "passwd": "your_redis_password"
+  }
+}
