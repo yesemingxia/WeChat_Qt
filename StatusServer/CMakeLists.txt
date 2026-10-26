@@ -88,10 +88,19 @@ target_link_libraries(status_server PRIVATE
 add_custom_command(TARGET status_server POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:status_server> $<TARGET_FILE_DIR:status_server>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${JSONCPP_DLL}" $<TARGET_FILE_DIR:status_server>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/config.ini" $<TARGET_FILE_DIR:status_server>
-    COMMENT "复制运行所需 DLL 与 config.ini 到输出目录"
+    COMMENT "复制运行所需 DLL 到输出目录"
     COMMAND_EXPAND_LISTS
 )
+
+# config.ini 含数据库密码，不纳入仓库：存在时才复制（缺失时需自行放置到 exe 目录）
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/config.ini")
+    add_custom_command(TARGET status_server POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/config.ini" $<TARGET_FILE_DIR:status_server>
+        COMMENT "复制 config.ini 到输出目录"
+    )
+else()
+    message(WARNING "未找到 StatusServer/config.ini：运行时请自行放置到 exe 同目录")
+endif()
 
 # VS 调试运行时的工作目录（保证能找到 config.ini）
 set_target_properties(status_server PROPERTIES
