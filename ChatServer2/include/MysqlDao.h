@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "const.h"
 #include "data.h"
 #include "message.pb.h"
@@ -273,7 +273,9 @@ public:
     bool GetUserThreads(int64_t userId, int64_t lastId, int pageSize,
         std::vector<std::shared_ptr<ChatThreadInfo>>& threads,
         bool& loadMore, int64_t& nextLastId);
+    bool AddChatMsg(std::vector<std::shared_ptr<ChatMessage>>& chat_datas);
     bool CreatePrivateChat(int user1_id, int user2_id, int& thread_id);
+    std::shared_ptr<PageResult>LoadChatMsg(int thread_id, int last_message_id, int page_size);
 private:
     std::unique_ptr<MySqlPool> pool_;
     std::string schema_;

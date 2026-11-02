@@ -96,7 +96,7 @@ ChatServer StatusServiceImpl::getChatServer() {
 			server.second.con_count = std::stoi(count_str);
 		}
 
-		if (server.second.con_count < minServer.con_count) {
+		if (server.second.con_count <= minServer.con_count) {
 			minServer = server.second;
 		}
 	}

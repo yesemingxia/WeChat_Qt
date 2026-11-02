@@ -24,6 +24,7 @@ public:
 	void SetServer(std::shared_ptr<CServer> server);
 private:
 	LogicSystem();
+	std::string GetRemoteServerName(int uid);
 	void DealMsg();
 	void RegisterCallBacks();
 	//void HelloWordCallBack(std::shared_ptr<CSession> session, const short& msg_id, const std::string& msg_data);
@@ -44,7 +45,7 @@ private:
 	void GetUserByUid(std::string uid_str, Json::Value& rtvalue);
 	void GetUserByName(std::string name, Json::Value& rtvalue);
 	void CreatePrivateChat(std::shared_ptr<CSession> session, const short& msg_id, const std::string& msg_data);
-
+	void LoadChatMsg(std::shared_ptr<CSession> session, const short& msg_id, const std::string& msg_data);
 
 	std::thread _worker_thread;
 	std::queue<std::shared_ptr<LogicNode>> _msg_que;

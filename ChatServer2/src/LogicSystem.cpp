@@ -99,6 +99,19 @@ LogicSystem::LogicSystem() :_b_stop(false) {
 	_worker_thread = std::thread(&LogicSystem::DealMsg, this);
 }
 
+std::string LogicSystem::GetRemoteServerName(int uid)
+{
+	std::string server_name;
+	if (!RedisMgr::GetInstance()->Get(USERIPPREFIX + std::to_string(uid), server_name)
+		|| server_name.empty()){
+		return ""; // 离线：消息/关系已落库，等其上线拉取
+	}
+	if (server_name == ConfigMgr::Inst()["SelfServer"]["Name"]) {
+		return "";      // 就在本服：应走本机 session 直投
+	}
+	return server_name;
+}
+
 LogicSystem::~LogicSystem() {
 	_b_stop = true;
 	_consume.notify_one();
@@ -176,6 +189,9 @@ void LogicSystem::RegisterCallBacks() {
 		std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 	
 	_fun_callbacks[ID_CREATE_PRIVATE_CHAT_REQ] = std::bind(&LogicSystem::CreatePrivateChat, this,
+		std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+
+	_fun_callbacks[ID_LOAD_CHAT_MSG_REQ] = std::bind(&LogicSystem::LoadChatMsg, this,
 		std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 }
 
@@ -511,16 +527,17 @@ void LogicSystem::AddFriendApply(std::shared_ptr<CSession> session, const short&
 		}
 		else {
 			// 如果不在本地，发 RPC 给对方所在的服务器
-			auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(applicant);
-			if (static_cast<int>(server_rsp.error()) == ErrorCodes::Success) {
+			/*auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(applicant);*/
+			auto remote_server = GetRemoteServerName(applicant);
+			if (!remote_server.empty()) {
 				AuthFriendReq auth_req;
 				auth_req.set_fromuid(approver);
 				auth_req.set_touid(applicant);
 				for (auto& chat_data : chat_datas) {
 					auth_req.add_textmsgs()->CopyFrom(*chat_data);
 				}
-				auto server_key = server_rsp.host() + ":" + server_rsp.port();
-				ChatGrpcClient::GetInstance()->NotifyAuthFriend(server_key, auth_req);
+				
+				ChatGrpcClient::GetInstance()->NotifyAuthFriend(remote_server, auth_req);
 			}
 		}
 
@@ -549,21 +566,23 @@ void LogicSystem::AddFriendApply(std::shared_ptr<CSession> session, const short&
 
 	auto to_str = std::to_string(touid);
 
-	auto to_ip_key = USERIPPREFIX + to_str;
-	std::string to_ip_value = "";
-	bool b_ip = RedisMgr::GetInstance()->Get(to_ip_key, to_ip_value);
-	auto& cfg = ConfigMgr::Inst();
-	auto self_name = cfg["SelfServer"]["Name"]; 
+	//auto to_ip_key = USERIPPREFIX + to_str;
+	//std::string to_ip_value = "";
+	//bool b_ip = RedisMgr::GetInstance()->Get(to_ip_key, to_ip_value);
+	//auto& cfg = ConfigMgr::Inst();
+	//auto self_name = cfg["SelfServer"]["Name"]; 
 
-	if (!b_ip) {
-		auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(touid);
-		if (server_rsp.error() != ErrorCodes::Success) {
-			return;
-		}
-		to_ip_value = server_rsp.host() + ":" + server_rsp.port();
-	}
+	//if (!b_ip) {
+	//	auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(touid);
+	//	if (server_rsp.error() != ErrorCodes::Success) {
+	//		return;
+	//	}
+	//	to_ip_value = server_rsp.host() + ":" + server_rsp.port();
+	//}
 
-	if (to_ip_value == self_name) {
+	auto remote_server = GetRemoteServerName(touid);
+
+	if (remote_server.empty()) {
 		auto to_session = UserMgr::GetInstance()->GetSession(touid);
 		if (to_session) {
 			Json::Value  notify;
@@ -593,15 +612,17 @@ void LogicSystem::AddFriendApply(std::shared_ptr<CSession> session, const short&
 		add_req.set_nick(apply_info->nick);
 	}
 
-	std::string server_key = to_ip_value;
+	/*std::string server_key = to_ip_value;
 	if (to_ip_value != self_name) {
 		auto host = cfg[to_ip_value]["Host"];
 		auto port = cfg[to_ip_value]["Port"];
 		if (!host.empty() && !port.empty()) {
 			server_key = host + ":" + port;
 		}
-	}
-	ChatGrpcClient::GetInstance()->NotifyAddFriend(server_key, add_req);
+	}*/
+	
+
+	ChatGrpcClient::GetInstance()->NotifyAddFriend(remote_server, add_req);
 	
 }
 
@@ -687,17 +708,21 @@ void LogicSystem::AuthFriendApply(std::shared_ptr<CSession> session, const short
 			to_session->Send(return_str, ID_NOTIFY_AUTH_FRIEND_REQ);
 		}
 		else {
-			auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(applicant);
+			/*auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(applicant);
 			if (server_rsp.error() != ErrorCodes::Success) {
 				rtvalue["error"] = ErrorCodes::RPCFailed;
 				return;
+			}*/
+			auto remote_server = GetRemoteServerName(applicant);
+			if (remote_server.empty()) {
+				return;     // 对方离线：拒绝结果已落库，等其上线刷新申请列表
 			}
 
 			AuthFriendReq auth_req;
 			auth_req.set_fromuid(approver);
 			auth_req.set_touid(applicant);
-			auto server_key = server_rsp.host() + ":" + server_rsp.port();
-			auto auth_rsp = ChatGrpcClient::GetInstance()->NotifyAuthFriend(server_key, auth_req);
+			/*auto server_key = server_rsp.host() + ":" + server_rsp.port();*/
+			auto auth_rsp = ChatGrpcClient::GetInstance()->NotifyAuthFriend(remote_server, auth_req);
 			if (auth_rsp.error() != ErrorCodes::Success) {
 				rtvalue["error"] = auth_rsp.error();
 			}
@@ -719,6 +744,20 @@ void LogicSystem::AuthFriendApply(std::shared_ptr<CSession> session, const short
 		rtvalue["error"] = ErrorCodes::RPCFailed;
 		return;
 	}
+	// 1) 回给同意人自己：让客户端能建会话、插初始气泡
+	rtvalue["chat_datas"] = Json::Value(Json::arrayValue);
+	auto chat_time = getCurrentTimestamp();
+	for (auto& chat_data : chat_datas) {
+		Json::Value chat;
+		chat["sender"] = chat_data->sender_id();
+		chat["msg_id"] = chat_data->msg_id();
+		chat["thread_id"] = chat_data->thread_id();
+		chat["unique_id"] = chat_data->unique_id();
+		chat["msg_content"] = chat_data->msgcontent();
+		chat["chat_time"] = chat_time;
+		chat["status"] = chat_data->status();
+		rtvalue["chat_datas"].append(chat);
+	}
 
 	rtvalue["name"] = user_info->name;
 	rtvalue["nick"] = user_info->nick;
@@ -739,9 +778,9 @@ void LogicSystem::AuthFriendApply(std::shared_ptr<CSession> session, const short
 			notify["name"] = user_info->name;
 			notify["nick"] = user_info->nick;
 			notify["icon"] = user_info->icon;
-			notify["sex"] = user_info->sex;
+			notify["sex"] = user_info->sex;	
 		}
-
+		notify["chat_datas"] = rtvalue["chat_datas"];
 		std::string return_str = notify.toStyledString();
 		to_session->Send(return_str, ID_NOTIFY_AUTH_FRIEND_REQ);
 		return;
@@ -755,83 +794,204 @@ void LogicSystem::AuthFriendApply(std::shared_ptr<CSession> session, const short
 	AuthFriendReq auth_req;
 	auth_req.set_fromuid(approver);
 	auth_req.set_touid(applicant);
-
-	auto server_key = server_rsp.host() + ":" + server_rsp.port();
-	ChatGrpcClient::GetInstance()->NotifyAuthFriend(server_key, auth_req);
+	for (auto& chat_data : chat_datas) {
+		auth_req.add_textmsgs()->CopyFrom(*chat_data);
+	}
+	/*auto server_key = server_rsp.host() + ":" + server_rsp.port();*/
+	auto remote_server = GetRemoteServerName(applicant);
+	if (remote_server.empty()) {
+		return;     // 对方离线：结果已落库，等其上线刷新申请列表
+	}
+	ChatGrpcClient::GetInstance()->NotifyAuthFriend(remote_server, auth_req);
 }
+
+//void LogicSystem::DealChatTextMsg(std::shared_ptr<CSession> session, const short& msg_id, const std::string& msg_data) {
+//	Json::Reader reader;
+//	Json::Value root;
+//	if (!reader.parse(msg_data, root)) {
+//		Json::Value rtvalue;
+//		rtvalue["error"] = ErrorCodes::Error_Json;
+//		std::string return_str = rtvalue.toStyledString();
+//		session->Send(return_str, ID_TEXT_CHAT_MSG_RSP);
+//		return;
+//	}
+//
+//	auto uid = root["fromuid"].asInt();
+//	auto touid = root["touid"].asInt();
+//
+//	Json::Value  rtvalue;
+//	rtvalue["error"] = ErrorCodes::Success;
+//	rtvalue["fromuid"] = uid;
+//	rtvalue["touid"] = touid;
+//
+//	rtvalue["text_array"] = root["text_array"];
+//
+//	Defer defer([this, &rtvalue, session]() {
+//		std::string return_str = rtvalue.toStyledString();
+//		session->Send(return_str, ID_TEXT_CHAT_MSG_RSP);
+//	});
+//
+//	if (uid <= 0 || touid <= 0 || uid == touid) {
+//		rtvalue["error"] = ErrorCodes::UidInvalid;
+//		return;
+//	}
+//
+//	const auto& text_array = root["text_array"];
+//	if (!text_array.isArray()) {
+//		rtvalue["error"] = ErrorCodes::Error_Json;
+//		return;
+//	}
+//
+//	auto to_session = UserMgr::GetInstance()->GetSession(touid);
+//	if (to_session) {
+//		std::string return_str = rtvalue.toStyledString();
+//		to_session->Send(return_str, ID_NOTIFY_TEXT_CHAT_MSG_REQ);
+//	}
+//	else {
+//		auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(touid);
+//		if (server_rsp.error() != ErrorCodes::Success) {
+//			rtvalue["error"] = ErrorCodes::RPCFailed;
+//			return;
+//		}
+//
+//		TextChatMsgReq req;
+//		req.set_fromuid(uid);
+//		req.set_touid(touid);
+//
+//		if (text_array.isArray()) {
+//			for (const auto& item : text_array) {
+//				TextChatData* msg = req.add_textmsgs();
+//				int msg_id_value = 0;
+//				if (TryGetInt(item, "msgid", msg_id_value)) {
+//					msg->set_msg_id(msg_id_value);
+//				}
+//				msg->set_msgcontent(item["content"].asString());
+//			}
+//		}
+//
+//		auto server_key = server_rsp.host() + ":" + server_rsp.port();
+//		auto reply = ChatGrpcClient::GetInstance()->NotifyTextChatMsg(server_key, req, rtvalue);
+//		if (reply.error() != ErrorCodes::Success) {
+//			rtvalue["error"] = reply.error();
+//		}
+//	}
+//}
 
 void LogicSystem::DealChatTextMsg(std::shared_ptr<CSession> session, const short& msg_id, const std::string& msg_data) {
 	Json::Reader reader;
 	Json::Value root;
-	if (!reader.parse(msg_data, root)) {
+	// @cuiruoni 入口校验：isObject 防止包解析成数组/标量时 operator[] 抛 LogicError
+	if (!reader.parse(msg_data, root) || !root.isObject()) {
 		Json::Value rtvalue;
 		rtvalue["error"] = ErrorCodes::Error_Json;
-		std::string return_str = rtvalue.toStyledString();
-		session->Send(return_str, ID_TEXT_CHAT_MSG_RSP);
+		session->Send(rtvalue.toStyledString(), ID_TEXT_CHAT_MSG_RSP);
 		return;
 	}
 
-	auto uid = root["fromuid"].asInt();
-	auto touid = root["touid"].asInt();
+	int uid = 0;
+	int touid = 0;
+	int thread_id = 0;
+	bool has_uid = TryGetInt(root, "fromuid", uid);
+	bool has_touid = TryGetInt(root, "touid", touid);
+	bool has_thread = TryGetInt(root, "thread_id", thread_id);
+	const Json::Value& text_array = root["text_array"];
 
 	Json::Value  rtvalue;
 	rtvalue["error"] = ErrorCodes::Success;
 	rtvalue["fromuid"] = uid;
 	rtvalue["touid"] = touid;
-
-	rtvalue["text_array"] = root["text_array"];
-
+	rtvalue["thread_id"] = thread_id;
 	Defer defer([this, &rtvalue, session]() {
 		std::string return_str = rtvalue.toStyledString();
 		session->Send(return_str, ID_TEXT_CHAT_MSG_RSP);
-	});
+		});
 
-	if (uid <= 0 || touid <= 0 || uid == touid) {
-		rtvalue["error"] = ErrorCodes::UidInvalid;
-		return;
-	}
-
-	const auto& text_array = root["text_array"];
-	if (!text_array.isArray()) {
+	if (!has_uid || !has_touid || !has_thread) {
 		rtvalue["error"] = ErrorCodes::Error_Json;
 		return;
 	}
 
+	if (uid <= 0 || touid <= 0 || uid == touid || thread_id <= 0) {
+		rtvalue["error"] = ErrorCodes::UidInvalid;
+		return;
+	}
+
+	if (!text_array.isArray() || text_array.empty()) {
+		rtvalue["error"] = ErrorCodes::Error_Json;
+		return;
+	}
+
+	// 1. 组装待落库消息
+	std::vector<std::shared_ptr<ChatMessage>> chat_datas;
+	auto chat_time = getCurrentTimestamp();
+	for (const auto& item : text_array) {
+		auto chat_msg = std::make_shared<ChatMessage>();
+		chat_msg->message_id = 0;              // 由 AddChatMsg 回填
+		chat_msg->thread_id = thread_id;
+		chat_msg->sender_id = uid;
+		chat_msg->recv_id = touid;
+		TryGetString(item, "unique_id", chat_msg->unique_id);
+		TryGetString(item, "content", chat_msg->content);
+		chat_msg->chat_time = chat_time;
+		chat_msg->status = 2;
+		chat_datas.push_back(chat_msg);
+	}
+
+	// 2. 先落库，失败就不通知任何人
+	if (!MysqlMgr::GetInstance()->AddChatMsg(chat_datas)) {
+		rtvalue["error"] = ErrorCodes::RPCFailed;
+		return;
+	}
+
+	// 3. 落库结果同时用于回发送方和通知接收方
+	for (const auto& chat_data : chat_datas) {
+		Json::Value one;
+		one["message_id"] = chat_data->message_id;
+		one["unique_id"] = chat_data->unique_id;
+		one["content"] = chat_data->content;
+		one["chat_time"] = chat_data->chat_time;
+		one["status"] = chat_data->status;
+		rtvalue["chat_datas"].append(one);
+	}
+
+	// 4. 本机直接通知；跨服走 RPC，对端服务器负责下发
 	auto to_session = UserMgr::GetInstance()->GetSession(touid);
 	if (to_session) {
-		std::string return_str = rtvalue.toStyledString();
-		to_session->Send(return_str, ID_NOTIFY_TEXT_CHAT_MSG_REQ);
+		to_session->Send(rtvalue.toStyledString(), ID_NOTIFY_TEXT_CHAT_MSG_REQ);
+		return;
 	}
-	else {
-		auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(touid);
-		if (server_rsp.error() != ErrorCodes::Success) {
-			rtvalue["error"] = ErrorCodes::RPCFailed;
-			return;
-		}
 
-		TextChatMsgReq req;
-		req.set_fromuid(uid);
-		req.set_touid(touid);
+	//auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(touid);
+	//if (server_rsp.error() != ErrorCodes::Success) {
+	//	rtvalue["error"] = ErrorCodes::RPCFailed;
+	//	return;
+	//}
 
-		if (text_array.isArray()) {
-			for (const auto& item : text_array) {
-				TextChatData* msg = req.add_textmsgs();
-				int msg_id_value = 0;
-				if (TryGetInt(item, "msgid", msg_id_value)) {
-					msg->set_msg_id(msg_id_value);
-				}
-				msg->set_msgcontent(item["content"].asString());
-			}
-		}
+	auto remote_server = GetRemoteServerName(touid);
+	if (remote_server.empty()) {
+		return; //离线或者本服
+	}
 
-		auto server_key = server_rsp.host() + ":" + server_rsp.port();
-		auto reply = ChatGrpcClient::GetInstance()->NotifyTextChatMsg(server_key, req, rtvalue);
-		if (reply.error() != ErrorCodes::Success) {
-			rtvalue["error"] = reply.error();
-		}
+	TextChatMsgReq req;
+	req.set_fromuid(uid);
+	req.set_touid(touid);
+	req.set_thread_id(thread_id);
+	for (const auto& chat_data : chat_datas) {
+		auto* text_msg = req.add_textmsgs();
+		text_msg->set_unique_id(chat_data->unique_id);
+		text_msg->set_msgcontent(chat_data->content);
+		text_msg->set_msg_id(chat_data->message_id);
+		text_msg->set_chat_time(chat_data->chat_time);
+	}
+
+	//auto server_key = server_rsp.host() + ":" + server_rsp.port();
+	//auto reply = ChatGrpcClient::GetInstance()->NotifyTextChatMsg(server_key, req, rtvalue);
+
+	auto reply = ChatGrpcClient::GetInstance()->NotifyTextChatMsg(remote_server, req, rtvalue);
+	if (reply.error() != ErrorCodes::Success) {
+		rtvalue["error"] = reply.error();
 	}
 }
-
 void LogicSystem::HeartBeatHandler(std::shared_ptr<CSession> session, const short& msg_id, const std::string& msg_data) {
 	/*Json::Value root;
 	Json::Reader reader;
@@ -844,6 +1004,8 @@ void LogicSystem::HeartBeatHandler(std::shared_ptr<CSession> session, const shor
 		std::string return_str = rtvalue.toStyledString();
 		session->Send(return_str, ID_HEARTBEAT_RSP);
 		});*/
+
+
 	Json::Reader reader;
 	Json::Value root;
 	if (!reader.parse(msg_data, root) || !root.isObject()) {
@@ -1150,7 +1312,7 @@ void LogicSystem::CreatePrivateChat(std::shared_ptr<CSession> session, const sho
 
 	Defer defer([this, &rtvalue, session]() {
 		std::string return_str = rtvalue.toStyledString();
-		session->Send(return_str, ID_LOAD_CHAT_THREAD_RSP);
+		session->Send(return_str, ID_CREATE_PRIVATE_CHAT_RSP);
 		});
 
 	int thread_id = 0;
@@ -1163,3 +1325,54 @@ void LogicSystem::CreatePrivateChat(std::shared_ptr<CSession> session, const sho
 	rtvalue["thread_id"] = thread_id;
 }
 
+void LogicSystem::LoadChatMsg(std::shared_ptr<CSession> session,
+	const short& msg_id, const std::string& msg_data)
+{
+	Json::Reader reader;
+	Json::Value root;
+	if (!reader.parse(msg_data, root) || !root.isObject()) {
+		Json::Value rtvalue;
+		rtvalue["error"] = ErrorCodes::Error_Json;
+		session->Send(rtvalue.toStyledString(), ID_LOAD_CHAT_MSG_RSP);
+		return;
+	}
+
+	int thread_id = 0;
+	int message_id = 0;
+	if (!TryGetInt(root, "thread_id", thread_id) || thread_id <= 0) {
+		Json::Value rtvalue;
+		rtvalue["error"] = ErrorCodes::Error_Json;
+		session->Send(rtvalue.toStyledString(), ID_LOAD_CHAT_MSG_RSP);
+		return;
+	}
+	TryGetInt(root, "message_id", message_id);   // 游标可缺省，首次登录客户端就传 0
+
+	Json::Value  rtvalue;
+	rtvalue["error"] = ErrorCodes::Success;
+	rtvalue["thread_id"] = thread_id;
+	Defer defer([this, &rtvalue, session]() {
+		std::string return_str = rtvalue.toStyledString();
+		session->Send(return_str, ID_LOAD_CHAT_MSG_RSP);
+		});
+
+	int page_size = 10;
+	auto res = MysqlMgr::GetInstance()->LoadChatMsg(thread_id, message_id, page_size);
+	if (!res) {
+		rtvalue["error"] = ErrorCodes::LOAD_CHAT_FAILED;
+		return;
+	}
+
+	rtvalue["last_message_id"] = res->next_cursor;
+	rtvalue["load_more"] = res->load_more;
+	for (auto& chat : res->messages) {
+		Json::Value chat_data;
+		chat_data["sender"] = chat.sender_id;
+		chat_data["msg_id"] = chat.message_id;
+		chat_data["thread_id"] = chat.thread_id;
+		chat_data["unique_id"] = 0;              // 库里没有 unique_id 列，与原文一致
+		chat_data["msg_content"] = chat.content;
+		chat_data["chat_time"] = chat.chat_time;
+		chat_data["status"] = chat.status;
+		rtvalue["chat_datas"].append(chat_data);
+	}
+}

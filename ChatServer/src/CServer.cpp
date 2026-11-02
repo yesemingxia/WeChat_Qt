@@ -40,15 +40,27 @@ void CServer::StartAccept() {
 //根据session 的id删除session，并移除用户和session的关联
 void CServer::ClearSession(std::string session_id) {
 	
-	lock_guard<mutex> lock(_mutex);
-	if (_sessions.find(session_id) != _sessions.end()) {
-		auto uid = _sessions[session_id]->GetUserId();
+	//lock_guard<mutex> lock(_mutex);
+	//if (_sessions.find(session_id) != _sessions.end()) {
+	//	auto uid = _sessions[session_id]->GetUserId();
 
-		//移除用户和session的关联
+	//	//移除用户和session的关联
+	//	UserMgr::GetInstance()->RmvUserSession(uid, session_id);
+	//}
+
+	//_sessions.erase(session_id);
+
+
+	lock_guard<mutex> lock(_mutex);
+	auto it = _sessions.find(session_id);          // 唯一一次查找
+	if (it == _sessions.end()) {
+		return;                                     // 已被清过，直接返回（等价于原来的“跳过 RmvUserSession”）
+	}
+	auto uid = it->second->GetUserId();
+	if (uid > 0) {                                  // 未登录连接 uid==0，不去查 uid 表
 		UserMgr::GetInstance()->RmvUserSession(uid, session_id);
 	}
-
-	_sessions.erase(session_id);
+	_sessions.erase(it);                            // 迭代器删，均摊 O(1)，不再二次查找
 	
 }
 

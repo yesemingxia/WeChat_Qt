@@ -125,6 +125,22 @@ public:
 		}
 	}
 
+	//void recycle(redisContext* ctx) {
+	//	if (ctx == nullptr) {
+	//		return;
+	//	}
+	//	if (ctx->err != 0) {     // 连接真坏了：销毁，并记一笔让保活线程补
+	//		redisFree(ctx);
+	//		fail_count_++;
+	//	}
+	//	else {                        // 连接是好的：原样归还，零成本
+	//		std::lock_guard<std::mutex> lock(mutex_);
+	//		if (b_stop_) { redisFree(ctx); return; }
+	//		connections_.push(ctx);
+	//		cond_.notify_one();
+	//	}
+	//}
+
 private:
 
 	bool  reconnect() {
@@ -274,6 +290,7 @@ private:
 			}
 		}
 	}
+
 	std::atomic<bool> b_stop_;
 	std::size_t poolSize_;
 	const char* host_;
@@ -287,24 +304,24 @@ private:
 	int counter_;
 };
 
-class RedisMgr: public Singleton<RedisMgr>, 
+class RedisMgr : public Singleton<RedisMgr>,
 	public std::enable_shared_from_this<RedisMgr>
 {
 	friend class Singleton<RedisMgr>;
 public:
 	~RedisMgr();
-	bool Get(const std::string &key, std::string& value);
-	bool Set(const std::string &key, const std::string &value);
-	bool LPush(const std::string &key, const std::string &value);
-	bool LPop(const std::string &key, std::string& value);
+	bool Get(const std::string& key, std::string& value);
+	bool Set(const std::string& key, const std::string& value);
+	bool LPush(const std::string& key, const std::string& value);
+	bool LPop(const std::string& key, std::string& value);
 	bool RPush(const std::string& key, const std::string& value);
 	bool RPop(const std::string& key, std::string& value);
-	bool HSet(const std::string &key, const std::string  &hkey, const std::string &value);
+	bool HSet(const std::string& key, const std::string& hkey, const std::string& value);
 	bool HSet(const char* key, const char* hkey, const char* hvalue, std::size_t hvaluelen);
-	std::string HGet(const std::string &key, const std::string &hkey);
+	std::string HGet(const std::string& key, const std::string& hkey);
 	bool HDel(const std::string& key, const std::string& field);
-	bool Del(const std::string &key);
-	bool ExistsKey(const std::string &key);
+	bool Del(const std::string& key);
+	bool ExistsKey(const std::string& key);
 	void Close() {
 		_con_pool->Close();
 		_con_pool->ClearConnections();

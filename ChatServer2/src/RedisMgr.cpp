@@ -27,9 +27,11 @@ bool RedisMgr::Get(const std::string& key, std::string& value)
 	if (connect == nullptr) {
 		return false;
 	}
+	
 	 auto reply = (redisReply*)redisCommand(connect, "GET %s", key.c_str());
 	 if (reply == NULL) {
 		 std::cout << "[ GET  " << key << " ] failed" << std::endl;
+		 
 		redisFree(connect);
 		  return false;
 	}

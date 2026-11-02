@@ -7,6 +7,7 @@ VarifyServer/config.json
 # 各服务运行时配置（含 MySQL / Redis 密码）：仅 ChatServer 的保留在仓库中
 StatusServer/config.ini
 WeChatServer/config.ini
+ResourceServer/config.ini
 
 # 通用密钥 / 证书 / 环境变量文件
 .env

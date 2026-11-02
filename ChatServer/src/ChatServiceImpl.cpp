@@ -133,14 +133,18 @@ Status ChatServiceImpl::NotifyTextChatMsg(::grpc::ServerContext* context,
 	rtvalue["touid"] = request->touid();
 
 	//将聊天数据组织为数组
+	rtvalue["thread_id"] = request->thread_id();
 	Json::Value text_array;
 	for (auto& msg : request->textmsgs()) {
 		Json::Value element;
 		element["content"] = msg.msgcontent();
-		element["msgid"] = msg.msg_id();
+		element["unique_id"] = msg.unique_id();
+		element["message_id"] = msg.msg_id();
+		element["chat_time"] = msg.chat_time();
+		element["status"] = 2;
 		text_array.append(element);
 	}
-	rtvalue["text_array"] = text_array; 
+	rtvalue["chat_datas"] = text_array;
 
 	std::string return_str = rtvalue.toStyledString();
 

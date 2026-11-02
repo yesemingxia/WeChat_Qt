@@ -111,12 +111,13 @@ public:
 
 	}
 
-	AddFriendRsp NotifyAddFriend(std::string server_ip, const AddFriendReq& req);
-	AuthFriendRsp NotifyAuthFriend(std::string server_ip, const AuthFriendReq& req);
+	AddFriendRsp NotifyAddFriend(const std::string& server_name, const AddFriendReq& req);
+	AuthFriendRsp NotifyAuthFriend(const std::string& server_name, const AuthFriendReq& req);
 	bool GetBaseInfo(std::string base_key, int uid, std::shared_ptr<UserInfo>& userinfo);
-	TextChatMsgRsp NotifyTextChatMsg(std::string server_ip, const TextChatMsgReq& req, const Json::Value& rtvalue);
-	KickUserRsp NotifyKickUser(std::string server_ip, const KickUserReq& req);
+	TextChatMsgRsp NotifyTextChatMsg(const std::string& server_name, const TextChatMsgReq& req, const Json::Value& rtvalue);
+	KickUserRsp NotifyKickUser(const std::string& server_name, const KickUserReq& req);
 private:
+	ChatConPool* FindPool(const std::string& server_name);
 	ChatGrpcClient();
 	std::unordered_map<std::string, std::unique_ptr<ChatConPool>> _pools;	
 };

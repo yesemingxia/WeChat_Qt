@@ -638,7 +638,9 @@ bool MysqlDao::GetUserThreads(
             "   WHERE user_id = ? "
             "     AND thread_id > ? "
             ") "
-            "SELECT thread_id, type, user1_id, user2_id "
+            "SELECT CAST(thread_id AS SIGNED) AS thread_id, type, "
+            "       CAST(user1_id AS SIGNED) AS user1_id, "
+            "       CAST(user2_id AS SIGNED) AS user2_id "
             "  FROM all_threads "
             " ORDER BY thread_id "
             " LIMIT " + std::to_string(pageSize + 1) + ";";
@@ -686,6 +688,63 @@ bool MysqlDao::GetUserThreads(
     }
 
     return true;
+}
+
+bool MysqlDao::AddChatMsg(std::vector<std::shared_ptr<ChatMessage>>& chat_datas)
+{
+    auto con = pool_->getConnection();
+    if (!con) {
+        return false;
+    }
+    Defer defer([this, &con]() {
+        if (con) {
+            pool_->returnConnection(std::move(con));
+        }
+        });
+
+    try {
+        con->sql("USE " + schema_).execute();
+        con->startTransaction();
+
+        for (auto& msg : chat_datas) {
+           con->sql("INSERT INTO chat_message(thread_id, sender_id, recv_id, content, "
+                "created_at, updated_at, status) VALUES(?, ?, ?, ?, ?, ?, ?);")
+                .bind(msg->thread_id)
+                .bind(msg->sender_id)
+                .bind(msg->recv_id)
+                .bind(msg->content)
+                .bind(msg->chat_time)
+                .bind(msg->chat_time)
+                .bind(msg->status)
+                .execute();
+
+           auto idRes = con->sql("SELECT LAST_INSERT_ID();").execute();
+           auto idRow = idRes.fetchOne();
+           if (!idRow) {
+               // 拿不到自增ID就不要把半截数据交回调用方
+               con->rollback();
+               return false;
+
+           }
+           msg->message_id = static_cast<int>(idRow[0].get<int64_t>());
+        }
+
+        con->commit();
+        return true;
+
+    }
+    catch (const mysqlx::Error& e) {
+        std::cerr << "MySQL Error in AddChatMsg: " << e.what() << std::endl;
+        try { con->rollback(); }
+        catch (...) {}
+        return false;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Exception in AddChatMsg: " << e.what() << std::endl;
+        try { con->rollback(); }
+        catch (...) {}
+        return false;
+    }
 }
 
 bool MysqlDao::CreatePrivateChat(int user1_id, int user2_id, int& thread_id)
@@ -765,4 +824,73 @@ bool MysqlDao::CreatePrivateChat(int user1_id, int user2_id, int& thread_id)
         return false;
     }
     return false;
+}
+
+std::shared_ptr<PageResult> MysqlDao::LoadChatMsg(int thread_id, int last_message_id, int page_size)
+{
+    auto con = pool_->getConnection();
+    if (!con) return nullptr;
+
+    Defer defer([this, &con]() {
+        if (con) {
+            pool_->returnConnection(std::move(con));
+        }
+        });
+
+    try {
+        con->sql("USE " + schema_).execute();
+
+        auto page_res = std::make_shared<PageResult>();
+        page_res->load_more = false;
+        page_res->next_cursor = last_message_id;
+
+        // mysqlx 的 LIMIT 不能 bind，沿用 GetUserThreads 的拼接写法（值是服务端算出来的整数，无注入面）
+        // created_at 用 DATE_FORMAT 取，避免 X DevAPI 返回带 .000000 的字符串混进客户端显示
+        std::string sql =
+            "SELECT message_id, thread_id, sender_id, recv_id, content, "
+            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, status "
+            "FROM chat_message "
+            "WHERE thread_id = ? AND message_id > ? "
+            "ORDER BY message_id ASC "
+            "LIMIT " + std::to_string(page_size + 1) + ";";
+
+        auto result = con->sql(sql)
+            .bind(thread_id)
+            .bind(last_message_id)
+            .execute();
+
+        std::vector<ChatMessage> tmp;
+        for (auto row : result) {
+            ChatMessage msg;
+            msg.message_id = static_cast<int>(row[0].get<int64_t>());
+            msg.thread_id = static_cast<int>(row[1].get<int64_t>());
+            msg.sender_id = static_cast<int>(row[2].get<int64_t>());
+            msg.recv_id = static_cast<int>(row[3].get<int64_t>());
+            msg.content = row[4].get<std::string>();
+            msg.chat_time = row[5].get<std::string>();
+            msg.status = row[6].get<int>();
+            tmp.push_back(std::move(msg));
+        }
+
+        // 多取到一条说明还有下一页
+        if ((int)tmp.size() > page_size) {
+            page_res->load_more = true;
+            tmp.pop_back();
+        }
+
+        if (!tmp.empty()) {
+            page_res->next_cursor = tmp.back().message_id;
+        }
+
+        page_res->messages = std::move(tmp);
+        return page_res;
+    }
+    catch (const mysqlx::Error& e) {
+        std::cerr << "MySQL Error in LoadChatMsg: " << e.what() << std::endl;
+        return nullptr;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Exception in LoadChatMsg: " << e.what() << std::endl;
+        return nullptr;
+    }
 }
