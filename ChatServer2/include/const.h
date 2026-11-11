@@ -25,6 +25,22 @@ enum ErrorCodes {
 };
 
 
+// @crnl 2026-11-03 必须与 ResourceServer/const.h 的 MsgStatus 逐值一致，数据库 status 是 tinyint
+enum MsgStatus {
+	UN_READ = 0,      //未读
+	SEND_FAILED = 1,  //发送失败
+	READED = 2,       //已读
+	UN_UPLOAD = 3,    //消息已落库，图片资源还没传完
+};
+
+// @crnl 2026-11-03 与客户端 global.h 的 ChatMsgType 对齐（TEXT=0/PIC=1/FILE=2）
+enum ChatMsgType {
+	MSG_TEXT = 0,
+	MSG_PIC = 1,
+	MSG_FILE = 2,
+};
+
+
 // Defer类
 class Defer {
 public:
@@ -86,6 +102,11 @@ enum MSG_IDS {
 
 	ID_LOAD_CHAT_MSG_REQ = 1029,      //加载聊天消息
 	ID_LOAD_CHAT_MSG_RSP = 1030,      //加载聊天消息
+
+	// @crnl 2026-11-03 图片聊天消息：先落库(status=UN_UPLOAD)，图片资源随后经 ResourceServer 断点续传
+	ID_IMG_CHAT_MSG_REQ = 1035,        //发图片消息（只带文件元信息，不带图）
+	ID_IMG_CHAT_MSG_RSP = 1036,        //回 message_id / unique_name / thread_id
+	ID_NOTIFY_IMG_CHAT_MSG_REQ = 1039, //通知"图片资源已就绪"，接收方据此下载
 
 };
 

@@ -707,8 +707,8 @@ bool MysqlDao::AddChatMsg(std::vector<std::shared_ptr<ChatMessage>>& chat_datas)
         con->startTransaction();
 
         for (auto& msg : chat_datas) {
-           con->sql("INSERT INTO chat_message(thread_id, sender_id, recv_id, content, "
-                "created_at, updated_at, status) VALUES(?, ?, ?, ?, ?, ?, ?);")
+            con->sql("INSERT INTO chat_message(thread_id, sender_id, recv_id, content, "
+                "created_at, updated_at, status, msg_type) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
                 .bind(msg->thread_id)
                 .bind(msg->sender_id)
                 .bind(msg->recv_id)
@@ -716,6 +716,7 @@ bool MysqlDao::AddChatMsg(std::vector<std::shared_ptr<ChatMessage>>& chat_datas)
                 .bind(msg->chat_time)
                 .bind(msg->chat_time)
                 .bind(msg->status)
+                .bind(msg->msg_type)
                 .execute();
 
            auto idRes = con->sql("SELECT LAST_INSERT_ID();").execute();
@@ -848,7 +849,7 @@ std::shared_ptr<PageResult> MysqlDao::LoadChatMsg(int thread_id, int last_messag
         // created_at 用 DATE_FORMAT 取，避免 X DevAPI 返回带 .000000 的字符串混进客户端显示
         std::string sql =
             "SELECT message_id, thread_id, sender_id, recv_id, content, "
-            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, status "
+            "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, status, msg_type "
             "FROM chat_message "
             "WHERE thread_id = ? AND message_id > ? "
             "ORDER BY message_id ASC "
@@ -869,6 +870,7 @@ std::shared_ptr<PageResult> MysqlDao::LoadChatMsg(int thread_id, int last_messag
             msg.content = row[4].get<std::string>();
             msg.chat_time = row[5].get<std::string>();
             msg.status = row[6].get<int>();
+            msg.msg_type = row[7].get<int>();
             tmp.push_back(std::move(msg));
         }
 

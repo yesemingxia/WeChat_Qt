@@ -96,7 +96,7 @@ void FileWorker::RegisterHandlers()
 
 		auto file_path_str = task->_path;
 		auto last = task->_last;
-		//std::cout << "file_path_str is " << file_path_str << std::endl;
+		std::cout << "file_path_str is " << file_path_str << std::endl;
 
 		boost::filesystem::path file_path(file_path_str);
 		boost::filesystem::path dir_path = file_path.parent_path();
@@ -189,16 +189,33 @@ void FileWorker::RegisterHandlers()
 		}
 
 
+		//std::ofstream outfile;
+		////第一个包
+		//if (task->_seq == 1) {
+		//	// 打开文件，如果存在则清空，不存在则创建
+		//	outfile.open(file_path_str, std::ios::binary | std::ios::trunc);
+		//}
+		//else {
+		//	// 保存为文件
+		//	outfile.open(file_path_str, std::ios::binary | std::ios::app);
+		//}
 		std::ofstream outfile;
-		//第一个包
-		if (task->_seq == 1) {
-			// 打开文件，如果存在则清空，不存在则创建
-			outfile.open(file_path_str, std::ios::binary | std::ios::trunc);
+		// 按 seq 计算偏移，用 in|out + seekp 保证重发同一块不会重复追加
+		const int64_t offset = static_cast<int64_t>(task->_seq - 1) * MAX_FILE_LEN;
+		if (static_cast<int64_t>(task->_trans_size) - static_cast<int64_t>(decoded.size()) != offset) {
+			result["error"] = ErrorCodes::FileOffsetInvalid;
+			task->_callback(result);
+			return;
 		}
-		else {
-			// 保存为文件
-			outfile.open(file_path_str, std::ios::binary | std::ios::app);
+
+		outfile.open(file_path_str, std::ios::binary | std::ios::in | std::ios::out);
+		if (!outfile) {
+			// 首包文件还不存在：先创建，再以读写方式打开
+			{ std::ofstream create(file_path_str, std::ios::binary); }
+			outfile.open(file_path_str, std::ios::binary | std::ios::in | std::ios::out);
 		}
+
+
 
 
 		if (!outfile) {
@@ -208,6 +225,7 @@ void FileWorker::RegisterHandlers()
 			return;
 		}
 
+		outfile.seekp(offset, std::ios::beg);
 		outfile.write(decoded.data(), decoded.size());
 		if (!outfile) {
 			std::cerr << "写入文件失败。" << std::endl;
@@ -217,28 +235,46 @@ void FileWorker::RegisterHandlers()
 		}
 
 		outfile.close();
-		if (last) {
-			std::cout << "文件已成功保存为: " << task->_name << std::endl;
-			//更新头像
-			MysqlMgr::GetInstance()->UpdateUserIcon(task->_uid, filename);
-			//获取用户信息
-			auto user_info = MysqlMgr::GetInstance()->GetUser(task->_uid);
-			if (user_info == nullptr) {
-				return;
-			}
+		// 服务端实际写入的进度，LogicWorker 直接用它写 Redis
+		result["trans_size"] = static_cast<Json::Int64>(offset + decoded.size());
+		result["seq"] = task->_seq;
 
-			//将数据库内容写入redis缓存
-			Json::Value redis_root;
-			redis_root["uid"] = task->_uid;
-			redis_root["pwd"] = user_info->pwd;
-			redis_root["name"] = user_info->name;
-			redis_root["email"] = user_info->email;
-			redis_root["nick"] = user_info->nick;
-			redis_root["desc"] = user_info->desc;
-			redis_root["sex"] = user_info->sex;
-			redis_root["icon"] = user_info->icon;
+		if (last) {
+			//std::cout << "文件已成功保存为: " << task->_name << std::endl;
+			////更新头像
+			//MysqlMgr::GetInstance()->UpdateUserIcon(task->_uid, filename);
+			////获取用户信息
+			//auto user_info = MysqlMgr::GetInstance()->GetUser(task->_uid);
+			//if (user_info == nullptr) {
+			//	return;
+			//}
+
+			////将数据库内容写入redis缓存
+			//Json::Value redis_root;
+			//redis_root["uid"] = task->_uid;
+			//redis_root["pwd"] = user_info->pwd;
+			//redis_root["name"] = user_info->name;
+			//redis_root["email"] = user_info->email;
+			//redis_root["nick"] = user_info->nick;
+			//redis_root["desc"] = user_info->desc;
+			//redis_root["sex"] = user_info->sex;
+			//redis_root["icon"] = user_info->icon;
+			//std::string base_key = USER_BASE_INFO + std::to_string(task->_uid);
+			//RedisMgr::GetInstance()->Set(base_key, redis_root.toStyledString());
+
+			std::cout << "文件已成功保存为: " << task->_name << std::endl;
+
+			// 只更新 Redis 里的头像字段，不再碰 MySQL
 			std::string base_key = USER_BASE_INFO + std::to_string(task->_uid);
-			RedisMgr::GetInstance()->Set(base_key, redis_root.toStyledString());
+			std::string base_value;
+			Json::Value user_json;
+			if (RedisMgr::GetInstance()->Get(base_key, base_value)) {
+				Json::Reader base_reader;
+				if (base_reader.parse(base_value, user_json)) {
+					user_json["icon"] = filename;
+					RedisMgr::GetInstance()->Set(base_key, user_json.toStyledString());
+				}
+			}
 		}
 
 		if (task->_callback) {
@@ -333,7 +369,11 @@ void FileWorker::RegisterHandlers()
 			}
 
 			//通过grpc通知ChatServer
-			ChatServerGrpcClient::GetInstance()->NotifyChatImgMsg(task->_chat_msg_id, uid_ip_value);
+			auto notify_rsp = ChatServerGrpcClient::GetInstance()->NotifyChatImgMsg(
+				task->_chat_msg_id, uid_ip_value);
+			std::cerr << "[img-notify] mid=" << task->_chat_msg_id
+				<< " chatserver=" << uid_ip_value
+				<< " err=" << notify_rsp.error() << std::endl;
 			return;
 		}
 
@@ -429,7 +469,11 @@ void FileWorker::RegisterHandlers()
 			}
 
 			//通过grpc通知ChatServer
-			ChatServerGrpcClient::GetInstance()->NotifyChatImgMsg(task->_chat_msg_id, uid_ip_value);
+			auto notify_rsp = ChatServerGrpcClient::GetInstance()->NotifyChatImgMsg(
+				task->_chat_msg_id, uid_ip_value);
+			std::cerr << "[img-notify] mid=" << task->_chat_msg_id
+				<< " chatserver=" << uid_ip_value
+				<< " err=" << notify_rsp.error() << std::endl;
 			return;
 		}
 
@@ -522,7 +566,11 @@ void FileWorker::RegisterHandlers()
 			}
 
 			//通过grpc通知ChatServer
-			ChatServerGrpcClient::GetInstance()->NotifyChatImgMsg(task->_chat_msg_id, uid_ip_value);
+			auto notify_rsp = ChatServerGrpcClient::GetInstance()->NotifyChatImgMsg(
+				task->_chat_msg_id, uid_ip_value);
+			std::cerr << "[img-notify] mid=" << task->_chat_msg_id
+				<< " chatserver=" << uid_ip_value
+				<< " err=" << notify_rsp.error() << std::endl;
 			if (task->_callback) {
 				task->_callback(result);
 			}
@@ -554,7 +602,7 @@ void FileWorker::PostTask(std::shared_ptr<FileTask> task)
 
 
 
-//todo jijiji
+
 void FileWorker::task_callback(std::shared_ptr<FileTask> task)
 {
 	auto iter = _handlers.find(task->_msg_id);
@@ -723,8 +771,10 @@ void DownloadWorker::task_callback(std::shared_ptr<DownloadTask> task)
 	infile.seekg(offset);
 
 	// 读取最多MAX_FILE_LEN字节
-	char buffer[MAX_FILE_LEN];
-	infile.read(buffer, MAX_FILE_LEN);
+	/*char buffer[MAX_FILE_LEN];*/
+	/*vector<char> buffer(MAX_FILE_LEN);*/
+	string buffer(MAX_FILE_LEN, '\0');
+	infile.read(buffer.data(), MAX_FILE_LEN);
 	//获取read实际读取多少字节
 	std::streamsize bytes_read = infile.gcount();
 
@@ -737,7 +787,7 @@ void DownloadWorker::task_callback(std::shared_ptr<DownloadTask> task)
 	}
 
 	// 将读取的数据进行base64编码
-	std::string data_to_encode(buffer, bytes_read);
+	std::string data_to_encode(buffer.data(), bytes_read);
 	std::string encoded_data = base64_encode(data_to_encode);
 
 	// 检查是否是最后一个包

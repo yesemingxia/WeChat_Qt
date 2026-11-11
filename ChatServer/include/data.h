@@ -50,6 +50,7 @@ struct ChatMessage {
 	std::string content;
 	std::string chat_time;
 	int status;
+	int msg_type = 0;   // @crnl 2026-11-03 0=文本 1=图片 2=文件（带默认值，避免 C26495）
 };
 
 // 查询结果结构，增加next_cursor字段

@@ -48,6 +48,11 @@ int main()
 		service.RegisterServer(pointer_server);
 		// 构建并启动gRPC服务器
 		std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
+		if (!server) {
+			std::cerr << "RPC Server failed to start on " << server_address
+				<< ", port may already be in use" << std::endl;
+			return 1;
+		}
 		std::cout << "RPC Server listening on " << server_address << std::endl;
 
 		//单独启动一个线程处理grpc服务

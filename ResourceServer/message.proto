@@ -121,7 +121,7 @@ message TextChatData{
 message TextChatMsgRsp {
 	int32 error = 1;
 	int32 fromuid = 2;
-	int32 touid = 3; 
+	int32 touid = 3;
 	int32 thread_id = 4;
 	repeated TextChatData textmsgs = 5;
 }
@@ -141,7 +141,10 @@ message NotifyChatImgReq{
 	int32 message_id = 3;
 	string file_name = 4;
 	int64 total_size = 5;
-	int32 thread_id =6;
+	int32 thread_id = 6;
+	string chat_time = 7;
+	int32 status = 8;
+	int32 msg_type = 9;
 }
 
 message NotifyChatImgRsp{
@@ -151,7 +154,7 @@ message NotifyChatImgRsp{
 	int32 message_id = 4;
 	string file_name = 5;
 	int64 total_size = 6;
-	int32 thread_id =7;
+	int32 thread_id = 7;
 }
 
 service ChatService {
@@ -162,7 +165,4 @@ service ChatService {
 	rpc NotifyTextChatMsg(TextChatMsgReq) returns (TextChatMsgRsp){}
 	rpc NotifyKickUser(KickUserReq) returns (KickUserRsp){}
 	rpc NotifyChatImgMsg(NotifyChatImgReq) returns (NotifyChatImgRsp){}
-} 
-
-
-
+}

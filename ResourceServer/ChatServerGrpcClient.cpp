@@ -14,16 +14,29 @@ NotifyChatImgRsp  ChatServerGrpcClient::NotifyChatImgMsg(int message_id,std::str
 	}
 	// TODO: chat_msg 可能为空；file_path 不存在时 file_size 会抛异常，需要判空/兜底
 	auto chat_msg = MysqlMgr::GetInstance()->GetChatMsgById(message_id);
+	if (!chat_msg) {
+		reply.set_error(ErrorCodes::MsgIdErr);
+		return reply;
+	}
 	request.set_file_name(chat_msg->content);
 	request.set_from_uid(chat_msg->sender_id);
 	request.set_to_uid(chat_msg->recv_id);
 	request.set_thread_id(chat_msg->thread_id);
+	request.set_chat_time(chat_msg->chat_time);
+	request.set_status(chat_msg->status);       // FileWorker 已先 UpdateUploadStatus
+	request.set_msg_type(chat_msg->msg_type);
     // 资源文件路径
 	auto file_dir = ConfigMgr::Inst().GetFileOutPath();
 	//该消息是接收方客户端发送过来的,服务器将资源存储在发送方的文件夹中
 	auto uid_str = std::to_string(chat_msg->sender_id);
 	auto file_path = (file_dir / uid_str / chat_msg->content);
-	boost::uintmax_t file_size = boost::filesystem::file_size(file_path);
+	boost::system::error_code ec;
+	boost::uintmax_t file_size = boost::filesystem::file_size(file_path,ec);
+	if (ec) {
+		reply.set_error(ErrorCodes::FileNotExists);
+		return reply;
+	}
+
 	request.set_total_size(file_size);
 
 	auto &pool_ = _hash_pools[chatserver];

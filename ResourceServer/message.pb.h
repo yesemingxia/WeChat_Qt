@@ -1652,11 +1652,14 @@ class NotifyChatImgReq final : public ::google::protobuf::Message
   // accessors -------------------------------------------------------
   enum : int {
     kFileNameFieldNumber = 4,
+    kChatTimeFieldNumber = 7,
     kFromUidFieldNumber = 1,
     kToUidFieldNumber = 2,
     kMessageIdFieldNumber = 3,
     kThreadIdFieldNumber = 6,
     kTotalSizeFieldNumber = 5,
+    kStatusFieldNumber = 8,
+    kMsgTypeFieldNumber = 9,
   };
   // string file_name = 4;
   void clear_file_name() ;
@@ -1672,6 +1675,22 @@ class NotifyChatImgReq final : public ::google::protobuf::Message
   inline PROTOBUF_ALWAYS_INLINE void _internal_set_file_name(
       const std::string& value);
   std::string* _internal_mutable_file_name();
+
+  public:
+  // string chat_time = 7;
+  void clear_chat_time() ;
+  const std::string& chat_time() const;
+  template <typename Arg_ = const std::string&, typename... Args_>
+  void set_chat_time(Arg_&& arg, Args_... args);
+  std::string* mutable_chat_time();
+  PROTOBUF_NODISCARD std::string* release_chat_time();
+  void set_allocated_chat_time(std::string* value);
+
+  private:
+  const std::string& _internal_chat_time() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_chat_time(
+      const std::string& value);
+  std::string* _internal_mutable_chat_time();
 
   public:
   // int32 from_uid = 1;
@@ -1724,13 +1743,33 @@ class NotifyChatImgReq final : public ::google::protobuf::Message
   void _internal_set_total_size(::int64_t value);
 
   public:
+  // int32 status = 8;
+  void clear_status() ;
+  ::int32_t status() const;
+  void set_status(::int32_t value);
+
+  private:
+  ::int32_t _internal_status() const;
+  void _internal_set_status(::int32_t value);
+
+  public:
+  // int32 msg_type = 9;
+  void clear_msg_type() ;
+  ::int32_t msg_type() const;
+  void set_msg_type(::int32_t value);
+
+  private:
+  ::int32_t _internal_msg_type() const;
+  void _internal_set_msg_type(::int32_t value);
+
+  public:
   // @@protoc_insertion_point(class_scope:message.NotifyChatImgReq)
  private:
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
   static const ::google::protobuf::internal::TcParseTable<
-      3, 6, 0,
-      42, 2>
+      4, 9, 0,
+      59, 2>
       _table_;
 
   friend class ::google::protobuf::MessageLite;
@@ -1748,11 +1787,14 @@ class NotifyChatImgReq final : public ::google::protobuf::Message
                           ::google::protobuf::Arena* arena, const Impl_& from,
                           const NotifyChatImgReq& from_msg);
     ::google::protobuf::internal::ArenaStringPtr file_name_;
+    ::google::protobuf::internal::ArenaStringPtr chat_time_;
     ::int32_t from_uid_;
     ::int32_t to_uid_;
     ::int32_t message_id_;
     ::int32_t thread_id_;
     ::int64_t total_size_;
+    ::int32_t status_;
+    ::int32_t msg_type_;
     ::google::protobuf::internal::CachedSize _cached_size_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
@@ -7320,6 +7362,98 @@ inline ::int32_t NotifyChatImgReq::_internal_thread_id() const {
 inline void NotifyChatImgReq::_internal_set_thread_id(::int32_t value) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.thread_id_ = value;
+}
+
+// string chat_time = 7;
+inline void NotifyChatImgReq::clear_chat_time() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.chat_time_.ClearToEmpty();
+}
+inline const std::string& NotifyChatImgReq::chat_time() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:message.NotifyChatImgReq.chat_time)
+  return _internal_chat_time();
+}
+template <typename Arg_, typename... Args_>
+inline PROTOBUF_ALWAYS_INLINE void NotifyChatImgReq::set_chat_time(Arg_&& arg,
+                                                     Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.chat_time_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:message.NotifyChatImgReq.chat_time)
+}
+inline std::string* NotifyChatImgReq::mutable_chat_time() ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  std::string* _s = _internal_mutable_chat_time();
+  // @@protoc_insertion_point(field_mutable:message.NotifyChatImgReq.chat_time)
+  return _s;
+}
+inline const std::string& NotifyChatImgReq::_internal_chat_time() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.chat_time_.Get();
+}
+inline void NotifyChatImgReq::_internal_set_chat_time(const std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.chat_time_.Set(value, GetArena());
+}
+inline std::string* NotifyChatImgReq::_internal_mutable_chat_time() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _impl_.chat_time_.Mutable( GetArena());
+}
+inline std::string* NotifyChatImgReq::release_chat_time() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:message.NotifyChatImgReq.chat_time)
+  return _impl_.chat_time_.Release();
+}
+inline void NotifyChatImgReq::set_allocated_chat_time(std::string* value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.chat_time_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.chat_time_.IsDefault()) {
+    _impl_.chat_time_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:message.NotifyChatImgReq.chat_time)
+}
+
+// int32 status = 8;
+inline void NotifyChatImgReq::clear_status() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.status_ = 0;
+}
+inline ::int32_t NotifyChatImgReq::status() const {
+  // @@protoc_insertion_point(field_get:message.NotifyChatImgReq.status)
+  return _internal_status();
+}
+inline void NotifyChatImgReq::set_status(::int32_t value) {
+  _internal_set_status(value);
+  // @@protoc_insertion_point(field_set:message.NotifyChatImgReq.status)
+}
+inline ::int32_t NotifyChatImgReq::_internal_status() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.status_;
+}
+inline void NotifyChatImgReq::_internal_set_status(::int32_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.status_ = value;
+}
+
+// int32 msg_type = 9;
+inline void NotifyChatImgReq::clear_msg_type() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.msg_type_ = 0;
+}
+inline ::int32_t NotifyChatImgReq::msg_type() const {
+  // @@protoc_insertion_point(field_get:message.NotifyChatImgReq.msg_type)
+  return _internal_msg_type();
+}
+inline void NotifyChatImgReq::set_msg_type(::int32_t value) {
+  _internal_set_msg_type(value);
+  // @@protoc_insertion_point(field_set:message.NotifyChatImgReq.msg_type)
+}
+inline ::int32_t NotifyChatImgReq::_internal_msg_type() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.msg_type_;
+}
+inline void NotifyChatImgReq::_internal_set_msg_type(::int32_t value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.msg_type_ = value;
 }
 
 // -------------------------------------------------------------------

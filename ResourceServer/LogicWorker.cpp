@@ -7,8 +7,9 @@
 #include "LogicSystem.h"
 #include "ConfigMgr.h"
 #include "RedisMgr.h"
+// mysqlx 会把 INTERNAL 定义成宏，grpc 头必须排在 MysqlMgr 之前
+#include "ChatServerGrpcClient.h"
 #include "MysqlMgr.h"
-
 
 namespace {
 
@@ -48,6 +49,24 @@ namespace {
 		return name.find_first_not_of(allowed) == std::string::npos;
 	}
 
+
+bool SafeFileName(const std::string& raw, std::string& name) {
+		name = boost::filesystem::path(raw).filename().string();
+		if (name.empty() || name == "." || name == ".." || name.size() > 128) {
+			return false;
+		}
+		for (unsigned char c : name) {
+			if (c < 0x20 || c == 0x7F) return false;   // 控制字符
+			if (std::string("/\\:*?\"<>|").find(static_cast<char>(c)) != std::string::npos) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+
+constexpr const char* IMG_DOWN_META_PREFIX = "img_down_meta_";  // Redis 缓存前缀
+constexpr int IMG_DOWN_META_TTL = 3600;                         // 1 小时
 } // namespace
 
 
@@ -239,6 +258,7 @@ void LogicWorker::RegisterCallBacks() {
 		};
 
 	// 上传进度同步：按 md5 查 Redis 中的 FileInfo，返回 total_size/seq/trans_size 供客户端断点续传
+	// 上传进度同步（教程版入口，当前不启用）：按 name 查 Redis，语义同 1041，格式差异见上方说明
 	/*_fun_callbacks[ID_SYNC_FILE_REQ] = [this](shared_ptr<CSession> session, const short& msg_id,
 		const string& msg_data) {
 			Json::Reader reader;
@@ -269,40 +289,19 @@ void LogicWorker::RegisterCallBacks() {
 			rtvalue["md5"] = md5;
 		};*/
 
-	_fun_callbacks[ID_SYNC_FILE_REQ] = [this](shared_ptr<CSession> session, const short&,
-		const string& msg_data) {
-			Json::Reader reader;
-			Json::Value root;
-			reader.parse(msg_data, root);
-
-			auto name = root["name"].asString();
-			auto uid = root["uid"].asInt();
-			auto token = root["token"].asString();
-
-			Json::Value rtvalue;
-			if (!CheckUserToken(uid, token)) {
-				rtvalue["error"] = ErrorCodes::TokenInvalid;
-				rtvalue["name"] = name;
-			}
-			else {
-				auto file = RedisMgr::GetInstance()->GetFileInfo(name);
-				if (file == nullptr) {
-					rtvalue["error"] = ErrorCodes::FileNotExists;
-					rtvalue["name"] = name;
-				}
-				else {
-					rtvalue["error"] = ErrorCodes::Success;
-					rtvalue["name"] = name;
-					rtvalue["seq"] = file->_seq;
-					rtvalue["trans_size"] = std::to_string(file->_trans_size);
-					rtvalue["total_size"] = std::to_string(file->_total_size);
-					rtvalue["md5"] = root["md5"].asString();
-				}
-			}
-			session->Send(rtvalue.toStyledString(), ID_SYNC_FILE_RSP);
-		};
-
-
+	// @crnl 2026-11-03 1005/1006 与 1041/1042 都实现"查上传进度"，但只有 1041 是活入口。
+	//   客户端 FileTcpMgr 只发 1041（WeChat/filetcpmgr.cpp 的 slot_resume_upload），
+	//   且客户端 ReqId 里根本没有 1005，所以这个 handler 当前是死代码，保留只为对齐教程 day38/day39。
+	//
+	//   启用这个入口前必须处理三件事，否则会"静默失败"，很难查：
+	//   1) 本 handler 返回的 trans_size/total_size 是【字符串】，1041 返回的是【数字】。
+	//      用 toInt() 解析的客户端（如 Season_2）会把进度读成 0，表现是"服务端说进度 0，从头上传"。
+	//   2) 客户端只注册了 1042 的处理函数，收到 1006 会直接丢弃 —— 表现是"点了继续没反应"，且无日志。
+	//   3) 这里缺 1041 已有的 Defer 保底回包 / reader.parse 校验 / SafeFileName，启用前补齐。
+	//
+	//   结论：这个 ID 要么接上并和 1041 对齐格式，要么停用；两个入口同时活着时，
+	//   改协议必须两边一起改 —— 这是本文件最容易踩的坑。
+	
 	// 头像上传：首片校验 token，分片落盘完成后更新用户头像字段并刷新 Redis 用户信息缓存
 	_fun_callbacks[ID_UPLOAD_HEAD_ICON_REQ] = [this](shared_ptr<CSession> session, const short& msg_id,
 		const string& msg_data) {
@@ -312,7 +311,14 @@ void LogicWorker::RegisterCallBacks() {
 
 			auto md5 = root["md5"].asString();
 			auto seq = root["seq"].asInt();
-			auto name = root["name"].asString();
+			/*auto name = root["name"].asString();*/
+			std::string name;
+			if (!SafeFileName(root, name)) {
+				Json::Value rt;
+				rt["error"] = ErrorCodes::FileNotExists;
+				session->Send(rt.toStyledString(), ID_UPLOAD_HEAD_ICON_RSP);
+				return;
+			}
 			auto total_size = root["total_size"].asInt();
 			auto trans_size = root["trans_size"].asInt();
 			auto last = root["last"].asInt();
@@ -328,43 +334,49 @@ void LogicWorker::RegisterCallBacks() {
 
 			Json::Value rtvalue;
 			
+			
+
 			auto callback = [=](const Json::Value& result) {
+				Json::Value rt = result;
+				const int err_now = rt.get("error", ErrorCodes::Error_Json).asInt();
 
-				// 在异步任务完成后调用
-				Json::Value rtvalue = result;
-				rtvalue["total_size"] = total_size;
-				rtvalue["seq"] = seq;
-				rtvalue["name"] = name;
-				rtvalue["trans_size"] = trans_size;
-				rtvalue["last"] = last;
-				rtvalue["md5"] = md5;
-				rtvalue["uid"] = uid;
-				rtvalue["last_seq"] = last_seq;
-				std::string return_str = rtvalue.toStyledString();
-				session->Send(return_str, ID_UPLOAD_HEAD_ICON_RSP);
-				};
-
-			//第一个包校验一下token是否合理
-			if (seq == 1) {
-				//从redis获取用户token是否正确
-				std::string uid_str = std::to_string(uid);
-				std::string token_key = USERTOKENPREFIX + uid_str;
-				std::string token_value = "";
-				bool success = RedisMgr::GetInstance()->Get(token_key, token_value);
-				if (!success) {
-					rtvalue["error"] = ErrorCodes::UidInvalid;
-					std::string return_str = rtvalue.toStyledString();
-					session->Send(return_str, ID_UPLOAD_HEAD_ICON_RSP);
-					return;
+				// 只有写盘成功才推进 Redis 进度；以服务端实际写入值为准
+				if (err_now == ErrorCodes::Success) {
+					auto fi = std::make_shared<FileInfo>();
+					fi->_file_path_str = file_path_str;
+					fi->_name = name;
+					fi->_seq = seq;
+					fi->_total_size = total_size;
+					fi->_trans_size = JsonInt64(rt, "trans_size", trans_size);
+					RedisMgr::GetInstance()->SetFileInfo(name, fi);
 				}
 
-				if (token_value != token) {
-					rtvalue["error"] = ErrorCodes::TokenInvalid;
+				rt["total_size"] = total_size;
+				rt["seq"] = seq;
+				rt["name"] = name;
+				rt["last"] = last;
+				rt["md5"] = md5;
+				rt["uid"] = uid;
+				rt["last_seq"] = last_seq;
+				if (!rt.isMember("trans_size")) {
+					rt["trans_size"] = trans_size;
+				}
+				session->Send(rt.toStyledString(), ID_UPLOAD_HEAD_ICON_RSP);
+				};
+			
+
+			// 首包不再预写 Redis：进度等写盘成功后由 callback 推进
+			if (seq != 1) {
+				auto file_info = RedisMgr::GetInstance()->GetFileInfo(name);
+				if (file_info == nullptr) {
+					// Redis 没有这个文件的进度（服务重启/过期/乱序包），让客户端从第 1 块重来
+					rtvalue["error"] = ErrorCodes::FileNotExists;
 					std::string return_str = rtvalue.toStyledString();
 					session->Send(return_str, ID_UPLOAD_HEAD_ICON_RSP);
 					return;
 				}
 			}
+
 
 			// 使用 std::hash 对字符串进行哈希
 			std::hash<std::string> hash_fn;
@@ -450,6 +462,7 @@ void LogicWorker::RegisterCallBacks() {
 					std::string return_str = rtvalue.toStyledString();
 					session->Send(return_str, ID_DOWN_LOAD_FILE_RSP);
 					};
+				
 
 				//第一个包校验一下token是否合理
 				if (seq == 1) {
@@ -476,7 +489,7 @@ void LogicWorker::RegisterCallBacks() {
 				// 使用 std::hash 对字符串进行哈希
 				std::hash<std::string> hash_fn;
 				size_t hash_value = hash_fn(name); // 生成哈希值
-				int index = hash_value % FILE_WORKER_COUNT;
+				int index = hash_value % DOWN_LOAD_WORKER_COUNT;
 				std::cout << "Hash value: " << hash_value << std::endl;
 
 				FileSystem::GetInstance()->PostDownloadTaskToQue(
@@ -487,204 +500,160 @@ void LogicWorker::RegisterCallBacks() {
 
 			};
 
-		_fun_callbacks[ID_IMG_CHAT_UPLOAD_REQ] = [this](shared_ptr<CSession> session, const short& msg_id,
-			const string& msg_data) {
-				Json::Reader reader;
-				Json::Value root;
-				reader.parse(msg_data, root);
-				auto md5 = root["md5"].asString();
-				auto seq = root["seq"].asInt();
-				auto name = root["name"].asString();
-				auto total_size_str = root["total_size"].asString();
-				auto trans_size_str = root["trans_size"].asString();
-				/*int64_t total_size = std::stoll(total_size_str);
-				int64_t trans_size = std::stoll(trans_size_str);*/
-				int64_t total_size = JsonInt64(root, "total_size");
-				int64_t trans_size = JsonInt64(root, "trans_size");
-				auto last = root["last"].asInt();
-				auto file_data = root["data"].asString();
-				auto file_path = ConfigMgr::Inst().GetFileOutPath();
-				auto uid = root["uid"].asInt();
-				auto sender = root["sender"].asInt();
-				auto receiver = root["receiver"].asInt();
-				auto message_id = root["message_id"].asInt();
-				//转化为字符串
-				auto uid_str = std::to_string(uid);
-				auto file_path_str = (file_path / uid_str / name).string();
-				Json::Value  rtvalue;
-
-				auto callback = [=](const Json::Value& result) {
-
-					// 在异步任务完成后调用
-					Json::Value rtvalue = result;
-					rtvalue["error"] = ErrorCodes::Success;
-					rtvalue["total_size"] = std::to_string(total_size);
-					rtvalue["seq"] = seq;
-					rtvalue["name"] = name;
-					rtvalue["trans_size"] = std::to_string(trans_size);
-					rtvalue["last"] = last;
-					rtvalue["md5"] = md5;
-					rtvalue["uid"] = uid;
-					rtvalue["sender"] = sender;
-					rtvalue["receiver"] = receiver;
-					std::string return_str = rtvalue.toStyledString();
-					session->Send(return_str, ID_IMG_CHAT_UPLOAD_RSP);
-					};
-
-				// 使用 std::hash 对字符串进行哈希
-				std::hash<std::string> hash_fn;
-				size_t hash_value = hash_fn(name); // 生成哈希值
-				int index = hash_value % FILE_WORKER_COUNT;
-				std::cout << "Hash value: " << hash_value << std::endl;
-
-				//第一个包
-				if (seq == 1) {
-					//构造数据存储
-					auto file_info = std::make_shared<FileInfo>();
-					file_info->_file_path_str = file_path_str;
-					file_info->_name = name;
-					file_info->_seq = seq;
-					file_info->_total_size = total_size;
-					file_info->_trans_size = trans_size;
-					bool success = RedisMgr::GetInstance()->SetFileInfo(name, file_info);
-					if (!success) {
-						rtvalue["error"] = ErrorCodes::FileSaveRedisFailed;
-						std::string return_str = rtvalue.toStyledString();
-						session->Send(return_str, ID_IMG_CHAT_UPLOAD_RSP);
-						return;
-					}
-				}
-				else {
-					auto file_info = RedisMgr::GetInstance()->GetFileInfo(name);
-					if (file_info == nullptr) {
-						rtvalue["error"] = ErrorCodes::FileNotExists;
-						std::string return_str = rtvalue.toStyledString();
-						session->Send(return_str, ID_IMG_CHAT_UPLOAD_RSP);
-						return;
-					}
-					file_info->_seq++;
-					file_info->_trans_size = trans_size;
-					bool success = RedisMgr::GetInstance()->SetFileInfo(name, file_info);
-					if (!success) {
-						rtvalue["error"] = ErrorCodes::FileSaveRedisFailed;
-						std::string return_str = rtvalue.toStyledString();
-						session->Send(return_str, ID_IMG_CHAT_UPLOAD_RSP);
-						return;
-					}
-				}
 
 
-				FileSystem::GetInstance()->PostMsgToQue(
-					std::make_shared<FileTask>(session, ID_IMG_CHAT_UPLOAD_REQ, uid, file_path_str, name, seq, total_size,
-						trans_size, last, file_data, callback, message_id, sender, receiver),
-					index
-				);
+_fun_callbacks[ID_IMG_CHAT_UPLOAD_REQ] = [this](shared_ptr<CSession> session,
+	const short&, const string& msg_data) {
+
+		Json::Value root;
+		Json::Reader reader;
+		if (!reader.parse(msg_data, root) || !root.isObject()) {
+			session->Send("{\"error\":" + std::to_string(ErrorCodes::Error_Json) + "}",
+				ID_IMG_CHAT_UPLOAD_RSP);
+			return;
+		}
+
+		std::string name;
+		if (!SafeFileName(root, name)) {
+			Json::Value rt;
+			rt["error"] = ErrorCodes::FileNotExists;
+			rt["name"] = root["name"].asString();
+			session->Send(rt.toStyledString(), ID_IMG_CHAT_UPLOAD_RSP);
+			return;
+		}
+
+		const std::string md5 = root["md5"].asString();
+		const std::string data = root["data"].asString();
+		const std::string token = root["token"].asString();
+		const int seq = root["seq"].asInt();
+		const int uid = root["uid"].asInt();
+		const int sender = root["sender"].asInt();
+		const int receiver = root["receiver"].asInt();
+		const int message_id = root["message_id"].asInt();
+		const int last = root["last"].asInt();
+		const int64_t total = JsonInt64(root, "total_size");
+		const int64_t trans = JsonInt64(root, "trans_size");
+
+		/*std::cerr << "[img1037] name=" << name
+			<< " uid=" << uid << " sender=" << sender
+			<< " receiver=" << receiver << " mid=" << message_id
+			<< " seq=" << seq << " last=" << last
+			<< " total=" << total << " trans=" << trans
+			<< " token_len=" << token.size() << std::endl;*/
+
+
+		auto fail = [&](int err) {
+			/*std::cerr << "[img1037] fail err=" << err
+				<< " name=" << name << " mid=" << message_id << std::endl;*/
+			Json::Value rt;
+			rt["error"] = err;
+			rt["name"] = name;
+			rt["message_id"] = message_id;
+			session->Send(rt.toStyledString(), ID_IMG_CHAT_UPLOAD_RSP);
+			};
+			
+		
+
+		if (seq < 1 || uid <= 0 || uid != sender || receiver <= 0 || message_id <= 0
+			|| total <= 0 || trans < 0 || trans > total
+			|| (last != 0 && last != 1)
+			|| (last == 1) != (trans == total)) {
+			fail(ErrorCodes::Error_Json);
+			return;
+		}
+
+		if (!CheckUserToken(uid, token)) {
+			fail(ErrorCodes::TokenInvalid);
+			return;
+		}
+
+		// 只有最后一片会更新 DB 状态、发 1039，所以只在这里查一次归属
+		if (last == 1) {
+			auto msg = MysqlMgr::GetInstance()->GetChatMsgById(message_id);
+			if (msg == nullptr || msg->sender_id != uid || msg->recv_id != receiver
+				|| msg->content != name || msg->msg_type != MSG_PIC) {
+				fail(ErrorCodes::MsgIdErr);
+				return;
+			}
+		}
+
+		const std::string path = (ConfigMgr::Inst().GetFileOutPath()
+			/ std::to_string(uid) / name).string();
+
+		auto callback = [=](const Json::Value& result) {
+			Json::Value rt = result;
+			if (!rt.isMember("error")) {
+				rt["error"] = ErrorCodes::Success;
+			}
+			rt["message_id"] = message_id;
+			rt["name"] = name;
+			rt["seq"] = seq;
+			rt["total_size"] = std::to_string(total);
+			rt["trans_size"] = std::to_string(trans);
+			rt["last"] = last;
+			rt["md5"] = md5;
+			rt["uid"] = uid;
+			rt["sender"] = sender;
+			rt["receiver"] = receiver;
+			session->Send(rt.toStyledString(), ID_IMG_CHAT_UPLOAD_RSP);
 			};
 
-		// 文件信息同步：与聊天图片上传走相同的落盘+状态更新+通知流程（客户端重连后补齐分片）
-		_fun_callbacks[ID_FILE_INFO_SYNC_REQ] = [this](shared_ptr<CSession> session, const short& msg_id,
+		std::hash<std::string> hash_fn;
+		FileSystem::GetInstance()->PostMsgToQue(
+			std::make_shared<FileTask>(session, ID_IMG_CHAT_UPLOAD_REQ, uid,
+				path, name, seq, static_cast<int>(total), static_cast<int>(trans),
+				last, data, callback, message_id, sender, receiver),
+			static_cast<int>(hash_fn(name) % FILE_WORKER_COUNT));
+	};
+
+
+
+		// 1041：查上传进度（客户端暂停后恢复走这里，不再用于聊天图片同步）
+		_fun_callbacks[ID_FILE_INFO_SYNC_REQ] = [](shared_ptr<CSession> session, const short&,
 			const string& msg_data) {
 				Json::Reader reader;
 				Json::Value root;
-				reader.parse(msg_data, root);
-				auto md5 = root["md5"].asString();
-				auto seq = root["seq"].asInt();
-				auto name = root["name"].asString();
-				/*auto total_size_str = root["total_size"].asString();
-				auto trans_size_str = root["trans_size"].asString();
-				auto total_size = std::stoll(total_size_str);
-				auto trans_size = std::stoll(trans_size_str);*/
-				// 客户端续传只发 name/uid/token；stoll("") 会抛异常带走进程，先按“无进度”回包
-				int64_t total_size = 0;
-				int64_t trans_size = 0;
-				try {
-					total_size = std::stoll(root["total_size"].asString());
-					trans_size = std::stoll(root["trans_size"].asString());
-				}
-				catch (const std::exception&) {
-					Json::Value rt;
-					rt["error"] = ErrorCodes::FileNotExists;   // 1012：客户端会从第 1 块重来
-					rt["name"] = name; 
+				Json::Value rt;
+
+				Defer defer([session,&rt]() {
+					if (!rt.isMember("error")) {
+						rt["error"] = ErrorCodes::FileReadFailed;
+					}
+					auto return_str = rt.toStyledString();
 					session->Send(rt.toStyledString(), ID_FILE_INFO_SYNC_RSP);
+					});
+				if (!reader.parse(msg_data, root) || !root.isObject()) {
+					rt["error"] = ErrorCodes::Error_Json;
 					return;
 				}
-				auto last = root["last"].asInt();
-				auto file_data = root["data"].asString();
-				auto file_path = ConfigMgr::Inst().GetFileOutPath();
-				auto uid = root["uid"].asInt();
-				auto message_id = root["message_id"].asInt();
-				auto sender = root["sender"].asInt();
-				auto receiver = root["receiver"].asInt();
-				//转化为字符串
-				auto uid_str = std::to_string(uid);
-				auto file_path_str = (file_path / uid_str / name).string();
-				Json::Value  rtvalue;
 
-				auto callback = [=](const Json::Value& result) {
-
-					// 在异步任务完成后调用
-					Json::Value rtvalue = result;
-					rtvalue["error"] = ErrorCodes::Success;
-					rtvalue["seq"] = seq;
-					rtvalue["name"] = name;
-					rtvalue["last"] = last;
-					rtvalue["md5"] = md5;
-					rtvalue["uid"] = uid;
-					rtvalue["sender"] = sender;
-					rtvalue["receiver"] = receiver;
-					std::string return_str = rtvalue.toStyledString();
-					session->Send(return_str, ID_FILE_INFO_SYNC_RSP);
-					};
-
-				// 使用 std::hash 对字符串进行哈希
-				std::hash<std::string> hash_fn;
-				size_t hash_value = hash_fn(name); // 生成哈希值
-				int index = hash_value % FILE_WORKER_COUNT;
-				std::cout << "Hash value: " << hash_value << std::endl;
-
-				//第一个包
-				if (seq == 1) {
-					//构造数据存储
-					auto file_info = std::make_shared<FileInfo>();
-					file_info->_file_path_str = file_path_str;
-					file_info->_name = name;
-					file_info->_seq = seq;
-					file_info->_total_size = total_size;
-					file_info->_trans_size = trans_size;
-					bool success = RedisMgr::GetInstance()->SetFileInfo(name, file_info);
-					if (!success) {
-						rtvalue["error"] = ErrorCodes::FileSaveRedisFailed;
-						std::string return_str = rtvalue.toStyledString();
-						session->Send(return_str, ID_FILE_INFO_SYNC_RSP);
-						return;
-					}
+				std::string name;
+				if (!SafeFileName(root, name)) {
+					rt["error"] = ErrorCodes::FileNotExists;
+					return;
 				}
-				else {
-					auto file_info = RedisMgr::GetInstance()->GetFileInfo(name);
-					if (file_info == nullptr) {
-						rtvalue["error"] = ErrorCodes::FileNotExists;
-						std::string return_str = rtvalue.toStyledString();
-						session->Send(return_str, ID_FILE_INFO_SYNC_RSP);
-						return;
-					}
-					file_info->_seq = seq;
-					file_info->_trans_size = trans_size;
-					bool success = RedisMgr::GetInstance()->SetFileInfo(name, file_info);
-					if (!success) {
-						rtvalue["error"] = ErrorCodes::FileSaveRedisFailed;
-						std::string return_str = rtvalue.toStyledString();
-						session->Send(return_str, ID_FILE_INFO_SYNC_RSP);
-						return;
-					}
+				const int uid = root["uid"].asInt();
+				const std::string token = root["token"].asString();
+				rt["name"] = name;
+
+				if (!CheckUserToken(uid, token)) {
+					rt["error"] = ErrorCodes::TokenInvalid;
+					return;
 				}
 
+				auto info = RedisMgr::GetInstance()->GetFileInfo(name);
+				if (!info) {
+					// 1012：客户端会从第 1 块重来（没传过 / 进度过期）
+					rt["error"] = ErrorCodes::FileNotExists;
+					return;
+				}
 
-				FileSystem::GetInstance()->PostMsgToQue(
-					std::make_shared<FileTask>(session, ID_FILE_INFO_SYNC_REQ, uid, file_path_str, name, seq, total_size,
-						trans_size, last, file_data, callback, message_id, sender, receiver),
-					index
-				);
+				rt["error"] = ErrorCodes::Success;
+				rt["seq"] = info->_seq;
+				rt["trans_size"] = static_cast<Json::Int64>(info->_trans_size);
+				rt["total_size"] = static_cast<Json::Int64>(info->_total_size);
 			};
+
 
 		// 聊天图片续传：从 Redis 恢复上次进度继续落盘，完成后同样更新状态并通知接收方
 		_fun_callbacks[ID_IMG_CHAT_CONTINUE_UPLOAD_REQ] = [this](shared_ptr<CSession> session, const short& msg_id,
@@ -788,6 +757,8 @@ void LogicWorker::RegisterCallBacks() {
 				if (chat_msg == nullptr) {
 					Json::Value rtvalue;
 					rtvalue["error"] = ErrorCodes::MsgIdErr;
+					rtvalue["message_id"] = message_id;
+					session->Send(rtvalue.toStyledString(), ID_IMG_CHAT_DOWN_INFO_SYNC_RSP);
 					return;
 				}
 
@@ -831,7 +802,6 @@ void LogicWorker::RegisterCallBacks() {
 				reader.parse(msg_data, root);
 
 				auto seq = root["seq"].asInt();
-				auto name = root["name"].asString();
 				auto total_size_str = root["total_size"].asString();
 				auto trans_size_str = root["trans_size"].asString();
 				auto file_path = ConfigMgr::Inst().GetFileOutPath();
@@ -841,10 +811,35 @@ void LogicWorker::RegisterCallBacks() {
 				auto token = root["token"].asString();
 				auto uid = root["uid"].asInt();
 
+				if (seq < 1 || sender <= 0 || uid <= 0) {
+					Json::Value rtvalue;
+					rtvalue["error"] = ErrorCodes::Error_Json;
+					session->Send(rtvalue.toStyledString(), ID_IMG_CHAT_DOWN_RSP);
+					return;
+				}
+
+				if (!CheckUserToken(uid, token)) {
+					Json::Value rtvalue;
+					rtvalue["error"] = ErrorCodes::TokenInvalid;
+					session->Send(rtvalue.toStyledString(), ID_IMG_CHAT_DOWN_RSP);
+					return;
+				}
+
+				std::string name;
+				if (!SafeFileName(root, name)) {
+					Json::Value rtvalue;
+					rtvalue["error"] = ErrorCodes::MsgIdErr;
+					session->Send(rtvalue.toStyledString(), ID_IMG_CHAT_DOWN_RSP);
+					return;
+				}
+
 				auto callback = [=](const Json::Value& result) {
 					// 在异步任务完成后调用
 					Json::Value rtvalue = result;
-					rtvalue["error"] = ErrorCodes::Success;
+					if (!rtvalue.isMember("error")) {
+						rtvalue["error"] = ErrorCodes::Success;
+					}
+					rtvalue["message_id"] = message_id;
 					rtvalue["name"] = name;
 					rtvalue["sender_id"] = sender;
 					rtvalue["receiver_id"] = receiver;
@@ -858,34 +853,13 @@ void LogicWorker::RegisterCallBacks() {
 				int index = hash_value % DOWN_LOAD_WORKER_COUNT;
 				std::cout << "Hash value: " << hash_value << std::endl;
 
-
-				//第一个包校验一下token是否合理
-				if (seq == 1) {
-					//从redis获取用户token是否正确
-					std::string uid_str = std::to_string(uid);
-					std::string token_key = USERTOKENPREFIX + uid_str;
-					std::string token_value = "";
-					bool success = RedisMgr::GetInstance()->Get(token_key, token_value);
-					Json::Value  rtvalue;
-					if (!success) {
-						rtvalue["error"] = ErrorCodes::UidInvalid;
-						std::string return_str = rtvalue.toStyledString();
-						session->Send(return_str, ID_IMG_CHAT_DOWN_RSP);
-						return;
-					}
-
-					if (token_value != token) {
-						rtvalue["error"] = ErrorCodes::TokenInvalid;
-						std::string return_str = rtvalue.toStyledString();
-						session->Send(return_str, ID_IMG_CHAT_DOWN_RSP);
-						return;
-					}
-				}
+				const auto file_path_str =
+					(ConfigMgr::Inst().GetFileOutPath() / std::to_string(sender) / name).string();
 
 				auto sender_str = std::to_string(sender);
 				//转化为字符串
 				auto uid_str = std::to_string(uid);
-				auto file_path_str = (file_path / sender_str / name).string();
+			
 
 				auto down_load_task = std::make_shared<DownloadTask>(session, uid, name, seq, file_path_str, callback);
 

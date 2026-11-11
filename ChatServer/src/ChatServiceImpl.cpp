@@ -8,6 +8,7 @@
 #include "RedisMgr.h"
 #include "MysqlMgr.h"
 #include <ctime>
+#include <iostream>
 
 namespace {
 std::string getCurrentTimestamp() {
@@ -224,6 +225,34 @@ Status ChatServiceImpl::NotifyKickUser(::grpc::ServerContext* context,
 	//清除旧的连接
 	_p_server->ClearSession(session->GetSessionId());
 
+	return Status::OK;
+}
+
+Status ChatServiceImpl::NotifyChatImgMsg(::grpc::ServerContext* context, const NotifyChatImgReq* request, NotifyChatImgRsp* reply)
+{
+	//对端不在本服：消息已经在库里，登录后走历史加载即可，不要报错
+	auto session = UserMgr::GetInstance()->GetSession(request->to_uid());
+	std::cerr << "[notify1039] to=" << request->to_uid()
+		<< " mid=" << request->message_id()
+		<< " online=" << (session ? 1 : 0) << std::endl;
+	if (session == nullptr) {
+		return Status::OK;
+	}
+
+	// 1039：告诉接收方“图片资源已就绪”，客户端据此走 1045/1047 下载
+	Json::Value rtvalue;
+	rtvalue["error"] = ErrorCodes::Success;
+	rtvalue["message_id"] = request->message_id();
+	rtvalue["thread_id"] = request->thread_id();
+	rtvalue["fromuid"] = request->from_uid();
+	rtvalue["touid"] = request->to_uid();
+	rtvalue["name"] = request->file_name();
+	rtvalue["total_size"] = std::to_string(request->total_size());
+	rtvalue["chat_time"] = request->chat_time();
+	rtvalue["status"] = request->status();
+	rtvalue["msg_type"] = request->msg_type();   // PIC=1
+
+	session->Send(rtvalue.toStyledString(), ID_NOTIFY_IMG_CHAT_MSG_REQ);
 	return Status::OK;
 }
 

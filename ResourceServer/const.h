@@ -94,6 +94,12 @@ enum MSG_IDS {
 	ID_IMG_CHAT_DOWN_RSP = 1048     //聊天图片下载回复
 };
 
+enum ChatMsgType {
+	MSG_TEXT = 0,
+	MSG_PIC = 1,
+	MSG_FILE = 2,
+};
+
 #define USERIPPREFIX  "uip_"
 #define USERTOKENPREFIX  "utoken_"
 #define IPCOUNTPREFIX  "ipcount_"

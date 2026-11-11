@@ -13,6 +13,9 @@
 #include <json/reader.h>
 #include"ChatServiceImpl.h"
 #include "utils.h"
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 namespace {
 bool TryGetInt(const Json::Value& root, const char* key, int& out) {
@@ -192,6 +195,9 @@ void LogicSystem::RegisterCallBacks() {
 		std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 
 	_fun_callbacks[ID_LOAD_CHAT_MSG_REQ] = std::bind(&LogicSystem::LoadChatMsg, this,
+		std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+
+	_fun_callbacks[ID_IMG_CHAT_MSG_REQ] = std::bind(&LogicSystem::DealChatImgMsg, this,
 		std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 }
 
@@ -786,10 +792,11 @@ void LogicSystem::AuthFriendApply(std::shared_ptr<CSession> session, const short
 		return;
 	}
 
-	auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(applicant);
+	/*auto server_rsp = StatusGrpcClient::GetInstance()->GetChatServer(applicant);
 	if (server_rsp.error() != ErrorCodes::Success) {
 		return;
-	}
+	}*/
+	
 
 	AuthFriendReq auth_req;
 	auth_req.set_fromuid(approver);
@@ -992,6 +999,99 @@ void LogicSystem::DealChatTextMsg(std::shared_ptr<CSession> session, const short
 		rtvalue["error"] = reply.error();
 	}
 }
+
+
+// @crnl 2026-11-03 图片聊天消息：只落库(status=UN_UPLOAD)，不通知、不碰资源文件。
+// 图片二进制由客户端随后经 ResourceServer 断点续传；传完后 ResourceServer 通过 gRPC
+// 回顾 ChatServer，再由 CSession 推 1039 给接收方（阶段 3）。
+void LogicSystem::DealChatImgMsg(std::shared_ptr<CSession> session, const short& msg_id,
+	const std::string& msg_data)
+{
+	Json::Reader reader;
+	Json::Value root;
+	// 入口校验：isObject 防止包解析成数组/标量时 operator[] 抛 LogicError
+	if (!reader.parse(msg_data, root) || !root.isObject()) {
+		Json::Value err;
+		err["error"] = ErrorCodes::Error_Json;
+		session->Send(err.toStyledString(), ID_IMG_CHAT_MSG_RSP);
+		return;
+	}
+
+	int uid = 0, touid = 0, thread_id = 0;
+	bool has_ids = TryGetInt(root, "fromuid", uid)
+		&& TryGetInt(root, "touid", touid)
+		&& TryGetInt(root, "thread_id", thread_id);
+
+	std::string name, unique_id, md5;
+	TryGetString(root, "name", name);        // 图片唯一文件名，落库到 content
+	TryGetString(root, "unique_id", unique_id);
+	TryGetString(root, "md5", md5);
+
+	Json::Value rtvalue;
+	rtvalue["error"] = ErrorCodes::Success;
+	rtvalue["fromuid"] = uid;
+	rtvalue["touid"] = touid;
+	rtvalue["thread_id"] = thread_id;
+	rtvalue["unique_id"] = unique_id;
+	rtvalue["unique_name"] = name;           // 客户端按 unique_name 取，不要写成 name
+	rtvalue["md5"] = md5;
+
+	// 无论从哪条分支返回都保证有回包，客户端不会干等 1036
+	Defer defer([this, &rtvalue, session]() {
+		session->Send(rtvalue.toStyledString(), ID_IMG_CHAT_MSG_RSP);
+		});
+
+	if (!has_ids || uid <= 0 || touid <= 0 || thread_id <= 0 || uid == touid) {
+		rtvalue["error"] = ErrorCodes::UidInvalid;
+		return;
+	}
+	if (name.empty() || unique_id.empty()) {
+		rtvalue["error"] = ErrorCodes::Error_Json;
+		return;
+	}
+	//@crnl 本处 为新增
+	std::string ext = "png";
+	const auto dot = name.find_last_of('.');
+	if (dot != std::string::npos) {
+		std::string candidate = name.substr(dot + 1);
+		for (char& c : candidate) {
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		}
+		if (candidate == "png" || candidate == "jpg" || candidate == "jpeg"
+			|| candidate == "gif" || candidate == "bmp" || candidate == "webp") {
+			ext = candidate;
+		}
+	}
+
+	boost::uuids::random_generator gen;
+	const std::string storage_name =
+		"img_" + std::to_string(uid) + "_" + boost::uuids::to_string(gen()) + "." + ext;
+
+	rtvalue["unique_name"] = storage_name;   // 覆盖前面按客户端 name 设置的值
+
+
+	auto chat_msg = std::make_shared<ChatMessage>();
+	chat_msg->message_id = 0;                 // 由 AddChatMsg 用 LAST_INSERT_ID 回填
+	chat_msg->thread_id = thread_id;
+	chat_msg->sender_id = uid;
+	chat_msg->recv_id = touid;
+	chat_msg->content = storage_name;
+	chat_msg->unique_id = unique_id;          // 不持久化，只用于回包和通知
+	chat_msg->chat_time = getCurrentTimestamp();
+	chat_msg->status = MsgStatus::UN_UPLOAD;
+	chat_msg->msg_type = ChatMsgType::MSG_PIC;
+
+	std::vector<std::shared_ptr<ChatMessage>> chat_datas{ chat_msg };
+	if (!MysqlMgr::GetInstance()->AddChatMsg(chat_datas)) {
+		rtvalue["error"] = ErrorCodes::RPCFailed;   // 落库失败就不回 message_id
+		return;
+	}
+
+	rtvalue["message_id"] = chat_msg->message_id;
+	rtvalue["chat_time"] = chat_msg->chat_time;
+	rtvalue["status"] = chat_msg->status;
+}
+
 void LogicSystem::HeartBeatHandler(std::shared_ptr<CSession> session, const short& msg_id, const std::string& msg_data) {
 	/*Json::Value root;
 	Json::Reader reader;
@@ -1373,6 +1473,7 @@ void LogicSystem::LoadChatMsg(std::shared_ptr<CSession> session,
 		chat_data["msg_content"] = chat.content;
 		chat_data["chat_time"] = chat.chat_time;
 		chat_data["status"] = chat.status;
+		chat_data["msg_type"] = chat.msg_type;
 		rtvalue["chat_datas"].append(chat_data);
 	}
 }

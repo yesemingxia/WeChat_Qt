@@ -208,11 +208,16 @@ inline constexpr NotifyChatImgReq::Impl_::Impl_(
       : file_name_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
+        chat_time_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
         from_uid_{0},
         to_uid_{0},
         message_id_{0},
         thread_id_{0},
         total_size_{::int64_t{0}},
+        status_{0},
+        msg_type_{0},
         _cached_size_{0} {}
 
 template <typename>
@@ -916,6 +921,9 @@ const ::uint32_t
         PROTOBUF_FIELD_OFFSET(::message::NotifyChatImgReq, _impl_.file_name_),
         PROTOBUF_FIELD_OFFSET(::message::NotifyChatImgReq, _impl_.total_size_),
         PROTOBUF_FIELD_OFFSET(::message::NotifyChatImgReq, _impl_.thread_id_),
+        PROTOBUF_FIELD_OFFSET(::message::NotifyChatImgReq, _impl_.chat_time_),
+        PROTOBUF_FIELD_OFFSET(::message::NotifyChatImgReq, _impl_.status_),
+        PROTOBUF_FIELD_OFFSET(::message::NotifyChatImgReq, _impl_.msg_type_),
         ~0u,  // no _has_bits_
         PROTOBUF_FIELD_OFFSET(::message::NotifyChatImgRsp, _internal_metadata_),
         ~0u,  // no _extensions_
@@ -956,7 +964,7 @@ static const ::_pbi::MigrationSchema
         {205, -1, -1, sizeof(::message::KickUserReq)},
         {214, -1, -1, sizeof(::message::KickUserRsp)},
         {224, -1, -1, sizeof(::message::NotifyChatImgReq)},
-        {238, -1, -1, sizeof(::message::NotifyChatImgRsp)},
+        {241, -1, -1, sizeof(::message::NotifyChatImgRsp)},
 };
 static const ::_pb::Message* const file_default_instances[] = {
     &::message::_GetVarifyReq_default_instance_._instance,
@@ -1019,39 +1027,40 @@ const char descriptor_table_protodef_message_2eproto[] ABSL_ATTRIBUTE_SECTION_VA
     "romuid\030\002 \001(\005\022\r\n\005touid\030\003 \001(\005\022\021\n\tthread_id"
     "\030\004 \001(\005\022\'\n\010textmsgs\030\005 \003(\0132\025.message.TextC"
     "hatData\"\032\n\013KickUserReq\022\013\n\003uid\030\001 \001(\005\")\n\013K"
-    "ickUserRsp\022\r\n\005error\030\001 \001(\005\022\013\n\003uid\030\002 \001(\005\"\202"
+    "ickUserRsp\022\r\n\005error\030\001 \001(\005\022\013\n\003uid\030\002 \001(\005\"\267"
     "\001\n\020NotifyChatImgReq\022\020\n\010from_uid\030\001 \001(\005\022\016\n"
     "\006to_uid\030\002 \001(\005\022\022\n\nmessage_id\030\003 \001(\005\022\021\n\tfil"
     "e_name\030\004 \001(\t\022\022\n\ntotal_size\030\005 \001(\003\022\021\n\tthre"
-    "ad_id\030\006 \001(\005\"\221\001\n\020NotifyChatImgRsp\022\r\n\005erro"
-    "r\030\001 \001(\005\022\020\n\010from_uid\030\002 \001(\005\022\016\n\006to_uid\030\003 \001("
-    "\005\022\022\n\nmessage_id\030\004 \001(\005\022\021\n\tfile_name\030\005 \001(\t"
-    "\022\022\n\ntotal_size\030\006 \001(\003\022\021\n\tthread_id\030\007 \001(\0052"
-    "P\n\rVarifyService\022\?\n\rGetVarifyCode\022\025.mess"
-    "age.GetVarifyReq\032\025.message.GetVarifyRsp\""
-    "\0002\207\001\n\rStatusService\022G\n\rGetChatServer\022\031.m"
-    "essage.GetChatServerReq\032\031.message.GetCha"
-    "tServerRsp\"\000\022-\n\005Login\022\021.message.LoginReq"
-    "\032\021.message.LoginRsp2\361\003\n\013ChatService\022A\n\017N"
-    "otifyAddFriend\022\025.message.AddFriendReq\032\025."
-    "message.AddFriendRsp\"\000\022A\n\rRplyAddFriend\022"
-    "\026.message.RplyFriendReq\032\026.message.RplyFr"
-    "iendRsp\"\000\022A\n\013SendChatMsg\022\027.message.SendC"
-    "hatMsgReq\032\027.message.SendChatMsgRsp\"\000\022D\n\020"
-    "NotifyAuthFriend\022\026.message.AuthFriendReq"
-    "\032\026.message.AuthFriendRsp\"\000\022G\n\021NotifyText"
-    "ChatMsg\022\027.message.TextChatMsgReq\032\027.messa"
-    "ge.TextChatMsgRsp\"\000\022>\n\016NotifyKickUser\022\024."
-    "message.KickUserReq\032\024.message.KickUserRs"
-    "p\"\000\022J\n\020NotifyChatImgMsg\022\031.message.Notify"
-    "ChatImgReq\032\031.message.NotifyChatImgRsp\"\000b"
-    "\006proto3"
+    "ad_id\030\006 \001(\005\022\021\n\tchat_time\030\007 \001(\t\022\016\n\006status"
+    "\030\010 \001(\005\022\020\n\010msg_type\030\t \001(\005\"\221\001\n\020NotifyChatI"
+    "mgRsp\022\r\n\005error\030\001 \001(\005\022\020\n\010from_uid\030\002 \001(\005\022\016"
+    "\n\006to_uid\030\003 \001(\005\022\022\n\nmessage_id\030\004 \001(\005\022\021\n\tfi"
+    "le_name\030\005 \001(\t\022\022\n\ntotal_size\030\006 \001(\003\022\021\n\tthr"
+    "ead_id\030\007 \001(\0052P\n\rVarifyService\022\?\n\rGetVari"
+    "fyCode\022\025.message.GetVarifyReq\032\025.message."
+    "GetVarifyRsp\"\0002\207\001\n\rStatusService\022G\n\rGetC"
+    "hatServer\022\031.message.GetChatServerReq\032\031.m"
+    "essage.GetChatServerRsp\"\000\022-\n\005Login\022\021.mes"
+    "sage.LoginReq\032\021.message.LoginRsp2\361\003\n\013Cha"
+    "tService\022A\n\017NotifyAddFriend\022\025.message.Ad"
+    "dFriendReq\032\025.message.AddFriendRsp\"\000\022A\n\rR"
+    "plyAddFriend\022\026.message.RplyFriendReq\032\026.m"
+    "essage.RplyFriendRsp\"\000\022A\n\013SendChatMsg\022\027."
+    "message.SendChatMsgReq\032\027.message.SendCha"
+    "tMsgRsp\"\000\022D\n\020NotifyAuthFriend\022\026.message."
+    "AuthFriendReq\032\026.message.AuthFriendRsp\"\000\022"
+    "G\n\021NotifyTextChatMsg\022\027.message.TextChatM"
+    "sgReq\032\027.message.TextChatMsgRsp\"\000\022>\n\016Noti"
+    "fyKickUser\022\024.message.KickUserReq\032\024.messa"
+    "ge.KickUserRsp\"\000\022J\n\020NotifyChatImgMsg\022\031.m"
+    "essage.NotifyChatImgReq\032\031.message.Notify"
+    "ChatImgRsp\"\000b\006proto3"
 };
 static ::absl::once_flag descriptor_table_message_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_message_2eproto = {
     false,
     false,
-    2447,
+    2500,
     descriptor_table_protodef_message_2eproto,
     "message.proto",
     &descriptor_table_message_2eproto_once,
@@ -6808,6 +6817,7 @@ inline PROTOBUF_NDEBUG_INLINE NotifyChatImgReq::Impl_::Impl_(
     ::google::protobuf::internal::InternalVisibility visibility, ::google::protobuf::Arena* arena,
     const Impl_& from, const ::message::NotifyChatImgReq& from_msg)
       : file_name_(arena, from.file_name_),
+        chat_time_(arena, from.chat_time_),
         _cached_size_{0} {}
 
 NotifyChatImgReq::NotifyChatImgReq(
@@ -6827,9 +6837,9 @@ NotifyChatImgReq::NotifyChatImgReq(
                offsetof(Impl_, from_uid_),
            reinterpret_cast<const char *>(&from._impl_) +
                offsetof(Impl_, from_uid_),
-           offsetof(Impl_, total_size_) -
+           offsetof(Impl_, msg_type_) -
                offsetof(Impl_, from_uid_) +
-               sizeof(Impl_::total_size_));
+               sizeof(Impl_::msg_type_));
 
   // @@protoc_insertion_point(copy_constructor:message.NotifyChatImgReq)
 }
@@ -6837,6 +6847,7 @@ inline PROTOBUF_NDEBUG_INLINE NotifyChatImgReq::Impl_::Impl_(
     ::google::protobuf::internal::InternalVisibility visibility,
     ::google::protobuf::Arena* arena)
       : file_name_(arena),
+        chat_time_(arena),
         _cached_size_{0} {}
 
 inline void NotifyChatImgReq::SharedCtor(::_pb::Arena* arena) {
@@ -6844,9 +6855,9 @@ inline void NotifyChatImgReq::SharedCtor(::_pb::Arena* arena) {
   ::memset(reinterpret_cast<char *>(&_impl_) +
                offsetof(Impl_, from_uid_),
            0,
-           offsetof(Impl_, total_size_) -
+           offsetof(Impl_, msg_type_) -
                offsetof(Impl_, from_uid_) +
-               sizeof(Impl_::total_size_));
+               sizeof(Impl_::msg_type_));
 }
 NotifyChatImgReq::~NotifyChatImgReq() {
   // @@protoc_insertion_point(destructor:message.NotifyChatImgReq)
@@ -6857,6 +6868,7 @@ inline void NotifyChatImgReq::SharedDtor(MessageLite& self) {
   this_._internal_metadata_.Delete<::google::protobuf::UnknownFieldSet>();
   ABSL_DCHECK(this_.GetArena() == nullptr);
   this_._impl_.file_name_.Destroy();
+  this_._impl_.chat_time_.Destroy();
   this_._impl_.~Impl_();
 }
 
@@ -6896,15 +6908,15 @@ const ::google::protobuf::internal::ClassData* NotifyChatImgReq::GetClassData() 
   return _class_data_.base();
 }
 PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1
-const ::_pbi::TcParseTable<3, 6, 0, 42, 2> NotifyChatImgReq::_table_ = {
+const ::_pbi::TcParseTable<4, 9, 0, 59, 2> NotifyChatImgReq::_table_ = {
   {
     0,  // no _has_bits_
     0, // no _extensions_
-    6, 56,  // max_field_number, fast_idx_mask
+    9, 120,  // max_field_number, fast_idx_mask
     offsetof(decltype(_table_), field_lookup_table),
-    4294967232,  // skipmap
+    4294966784,  // skipmap
     offsetof(decltype(_table_), field_entries),
-    6,  // num_field_entries
+    9,  // num_field_entries
     0,  // num_aux_entries
     offsetof(decltype(_table_), field_names),  // no aux_entries
     _class_data_.base(),
@@ -6933,6 +6945,20 @@ const ::_pbi::TcParseTable<3, 6, 0, 42, 2> NotifyChatImgReq::_table_ = {
     // int32 thread_id = 6;
     {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(NotifyChatImgReq, _impl_.thread_id_), 63>(),
      {48, 63, 0, PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.thread_id_)}},
+    // string chat_time = 7;
+    {::_pbi::TcParser::FastUS1,
+     {58, 63, 0, PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.chat_time_)}},
+    // int32 status = 8;
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(NotifyChatImgReq, _impl_.status_), 63>(),
+     {64, 63, 0, PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.status_)}},
+    // int32 msg_type = 9;
+    {::_pbi::TcParser::SingularVarintNoZag1<::uint32_t, offsetof(NotifyChatImgReq, _impl_.msg_type_), 63>(),
+     {72, 63, 0, PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.msg_type_)}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::MiniParse, {}},
     {::_pbi::TcParser::MiniParse, {}},
   }}, {{
     65535, 65535
@@ -6955,12 +6981,22 @@ const ::_pbi::TcParseTable<3, 6, 0, 42, 2> NotifyChatImgReq::_table_ = {
     // int32 thread_id = 6;
     {PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.thread_id_), 0, 0,
     (0 | ::_fl::kFcSingular | ::_fl::kInt32)},
+    // string chat_time = 7;
+    {PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.chat_time_), 0, 0,
+    (0 | ::_fl::kFcSingular | ::_fl::kUtf8String | ::_fl::kRepAString)},
+    // int32 status = 8;
+    {PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.status_), 0, 0,
+    (0 | ::_fl::kFcSingular | ::_fl::kInt32)},
+    // int32 msg_type = 9;
+    {PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.msg_type_), 0, 0,
+    (0 | ::_fl::kFcSingular | ::_fl::kInt32)},
   }},
   // no aux_entries
   {{
-    "\30\0\0\0\11\0\0\0"
+    "\30\0\0\0\11\0\0\11\0\0\0\0\0\0\0\0"
     "message.NotifyChatImgReq"
     "file_name"
+    "chat_time"
   }},
 };
 
@@ -6972,9 +7008,10 @@ PROTOBUF_NOINLINE void NotifyChatImgReq::Clear() {
   (void) cached_has_bits;
 
   _impl_.file_name_.ClearToEmpty();
+  _impl_.chat_time_.ClearToEmpty();
   ::memset(&_impl_.from_uid_, 0, static_cast<::size_t>(
-      reinterpret_cast<char*>(&_impl_.total_size_) -
-      reinterpret_cast<char*>(&_impl_.from_uid_)) + sizeof(_impl_.total_size_));
+      reinterpret_cast<char*>(&_impl_.msg_type_) -
+      reinterpret_cast<char*>(&_impl_.from_uid_)) + sizeof(_impl_.msg_type_));
   _internal_metadata_.Clear<::google::protobuf::UnknownFieldSet>();
 }
 
@@ -7036,6 +7073,28 @@ PROTOBUF_NOINLINE void NotifyChatImgReq::Clear() {
                     stream, this_._internal_thread_id(), target);
           }
 
+          // string chat_time = 7;
+          if (!this_._internal_chat_time().empty()) {
+            const std::string& _s = this_._internal_chat_time();
+            ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+                _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "message.NotifyChatImgReq.chat_time");
+            target = stream->WriteStringMaybeAliased(7, _s, target);
+          }
+
+          // int32 status = 8;
+          if (this_._internal_status() != 0) {
+            target = ::google::protobuf::internal::WireFormatLite::
+                WriteInt32ToArrayWithField<8>(
+                    stream, this_._internal_status(), target);
+          }
+
+          // int32 msg_type = 9;
+          if (this_._internal_msg_type() != 0) {
+            target = ::google::protobuf::internal::WireFormatLite::
+                WriteInt32ToArrayWithField<9>(
+                    stream, this_._internal_msg_type(), target);
+          }
+
           if (PROTOBUF_PREDICT_FALSE(this_._internal_metadata_.have_unknown_fields())) {
             target =
                 ::_pbi::WireFormat::InternalSerializeUnknownFieldsToArray(
@@ -7066,6 +7125,11 @@ PROTOBUF_NOINLINE void NotifyChatImgReq::Clear() {
               total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
                                               this_._internal_file_name());
             }
+            // string chat_time = 7;
+            if (!this_._internal_chat_time().empty()) {
+              total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
+                                              this_._internal_chat_time());
+            }
             // int32 from_uid = 1;
             if (this_._internal_from_uid() != 0) {
               total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
@@ -7091,6 +7155,16 @@ PROTOBUF_NOINLINE void NotifyChatImgReq::Clear() {
               total_size += ::_pbi::WireFormatLite::Int64SizePlusOne(
                   this_._internal_total_size());
             }
+            // int32 status = 8;
+            if (this_._internal_status() != 0) {
+              total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
+                  this_._internal_status());
+            }
+            // int32 msg_type = 9;
+            if (this_._internal_msg_type() != 0) {
+              total_size += ::_pbi::WireFormatLite::Int32SizePlusOne(
+                  this_._internal_msg_type());
+            }
           }
           return this_.MaybeComputeUnknownFieldsSize(total_size,
                                                      &this_._impl_._cached_size_);
@@ -7107,6 +7181,9 @@ void NotifyChatImgReq::MergeImpl(::google::protobuf::MessageLite& to_msg, const 
   if (!from._internal_file_name().empty()) {
     _this->_internal_set_file_name(from._internal_file_name());
   }
+  if (!from._internal_chat_time().empty()) {
+    _this->_internal_set_chat_time(from._internal_chat_time());
+  }
   if (from._internal_from_uid() != 0) {
     _this->_impl_.from_uid_ = from._impl_.from_uid_;
   }
@@ -7121,6 +7198,12 @@ void NotifyChatImgReq::MergeImpl(::google::protobuf::MessageLite& to_msg, const 
   }
   if (from._internal_total_size() != 0) {
     _this->_impl_.total_size_ = from._impl_.total_size_;
+  }
+  if (from._internal_status() != 0) {
+    _this->_impl_.status_ = from._impl_.status_;
+  }
+  if (from._internal_msg_type() != 0) {
+    _this->_impl_.msg_type_ = from._impl_.msg_type_;
   }
   _this->_internal_metadata_.MergeFrom<::google::protobuf::UnknownFieldSet>(from._internal_metadata_);
 }
@@ -7139,9 +7222,10 @@ void NotifyChatImgReq::InternalSwap(NotifyChatImgReq* PROTOBUF_RESTRICT other) {
   ABSL_DCHECK_EQ(arena, other->GetArena());
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.file_name_, &other->_impl_.file_name_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.chat_time_, &other->_impl_.chat_time_, arena);
   ::google::protobuf::internal::memswap<
-      PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.total_size_)
-      + sizeof(NotifyChatImgReq::_impl_.total_size_)
+      PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.msg_type_)
+      + sizeof(NotifyChatImgReq::_impl_.msg_type_)
       - PROTOBUF_FIELD_OFFSET(NotifyChatImgReq, _impl_.from_uid_)>(
           reinterpret_cast<char*>(&_impl_.from_uid_),
           reinterpret_cast<char*>(&other->_impl_.from_uid_));
