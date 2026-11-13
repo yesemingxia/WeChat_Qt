@@ -169,7 +169,12 @@ void LogicWorker::RegisterCallBacks() {
 		const string& msg_data) {
 			Json::Reader reader;
 			Json::Value root;
-			reader.parse(msg_data, root);
+			if (!reader.parse(msg_data, root) || !root.isObject()) {
+				Json::Value rt;
+				rt["error"] = ErrorCodes::Error_Json;
+				session->Send(rt.toStyledString(), ID_UPLOAD_FILE_RSP);
+				return;
+			}
 			auto md5 = root["md5"].asString();
 			auto seq = root["seq"].asInt();
 			auto name = root["name"].asString();
@@ -259,35 +264,6 @@ void LogicWorker::RegisterCallBacks() {
 
 	// 上传进度同步：按 md5 查 Redis 中的 FileInfo，返回 total_size/seq/trans_size 供客户端断点续传
 	// 上传进度同步（教程版入口，当前不启用）：按 name 查 Redis，语义同 1041，格式差异见上方说明
-	/*_fun_callbacks[ID_SYNC_FILE_REQ] = [this](shared_ptr<CSession> session, const short& msg_id,
-		const string& msg_data) {
-			Json::Reader reader;
-			Json::Value root;
-			reader.parse(msg_data, root);
-
-			Json::Value rtvalue;
-			Defer defer([this,session,&rtvalue]() {
-				std::string return_str = rtvalue.toStyledString();
-				session->Send(return_str, ID_SYNC_FILE_REQ);
-				});
-
-			auto md5 = root["md5"].asString();
-
-			auto file = LogicSystem::GetInstance()->GetFileInfo(md5);
-
-			if (file == nullptr) {
-				rtvalue["error"] = ErrorCodes::FileNotExists;
-				return;
-			}
-
-
-			rtvalue["error"] = ErrorCodes::Success;
-			rtvalue["total_size"] = std::to_string(file->_total_size);
-			rtvalue["seq"] = file->_seq;
-			rtvalue["name"] = file->_name;
-			rtvalue["trans_size"] = std::to_string(file->_trans_size);
-			rtvalue["md5"] = md5;
-		};*/
 
 	// @crnl 2026-11-03 1005/1006 与 1041/1042 都实现"查上传进度"，但只有 1041 是活入口。
 	//   客户端 FileTcpMgr 只发 1041（WeChat/filetcpmgr.cpp 的 slot_resume_upload），
@@ -307,8 +283,13 @@ void LogicWorker::RegisterCallBacks() {
 		const string& msg_data) {
 			Json::Reader reader;
 			Json::Value root;
-			reader.parse(msg_data, root);
-
+			
+			if (!reader.parse(msg_data, root) || !root.isObject()) {
+				Json::Value rt;
+				rt["error"] = ErrorCodes::Error_Json;
+				session->Send(rt.toStyledString(), ID_UPLOAD_HEAD_ICON_RSP);
+				return;
+			}
 			auto md5 = root["md5"].asString();
 			auto seq = root["seq"].asInt();
 			/*auto name = root["name"].asString();*/
@@ -438,8 +419,13 @@ void LogicWorker::RegisterCallBacks() {
 			const string& msg_data) {
 				Json::Reader reader;
 				Json::Value  root;
-				reader.parse(msg_data, root);
-
+				
+				if (!reader.parse(msg_data, root) || !root.isObject()) {
+					Json::Value rt;
+					rt["error"] = ErrorCodes::Error_Json;
+					session->Send(rt.toStyledString(), ID_DOWN_LOAD_FILE_RSP);
+					return;
+				}
 				auto seq = root["seq"].asInt();
 				auto name = root["name"].asString();
 				auto uid = root["uid"].asInt();
@@ -660,7 +646,13 @@ _fun_callbacks[ID_IMG_CHAT_UPLOAD_REQ] = [this](shared_ptr<CSession> session,
 			const string& msg_data) {
 				Json::Reader reader;
 				Json::Value root;
-				reader.parse(msg_data, root);
+				
+				if (!reader.parse(msg_data, root) || !root.isObject()) {
+					Json::Value rt;
+					rt["error"] = ErrorCodes::Error_Json;
+					session->Send(rt.toStyledString(), ID_IMG_CHAT_CONTINUE_UPLOAD_RSP);
+					return;
+				}
 				auto md5 = root["md5"].asString();
 				auto seq = root["seq"].asInt();
 				auto name = root["name"].asString();
@@ -751,7 +743,13 @@ _fun_callbacks[ID_IMG_CHAT_UPLOAD_REQ] = [this](shared_ptr<CSession> session,
 			const string& msg_data) {
 				Json::Reader reader;
 				Json::Value root;
-				reader.parse(msg_data, root);
+				
+				if (!reader.parse(msg_data, root) || !root.isObject()) {
+					Json::Value rt;
+					rt["error"] = ErrorCodes::Error_Json;
+					session->Send(rt.toStyledString(), ID_IMG_CHAT_DOWN_INFO_SYNC_RSP);
+					return;
+				}
 				auto message_id = root["message_id"].asInt();
 				auto chat_msg = MysqlMgr::GetInstance()->GetChatMsgById(message_id);
 				if (chat_msg == nullptr) {
@@ -799,7 +797,13 @@ _fun_callbacks[ID_IMG_CHAT_UPLOAD_REQ] = [this](shared_ptr<CSession> session,
 
 				Json::Reader reader;
 				Json::Value root;
-				reader.parse(msg_data, root);
+				
+				if (!reader.parse(msg_data, root) || !root.isObject()) {
+					Json::Value rt;
+					rt["error"] = ErrorCodes::Error_Json;
+					session->Send(rt.toStyledString(), ID_IMG_CHAT_DOWN_RSP);
+					return;
+				}
 
 				auto seq = root["seq"].asInt();
 				auto total_size_str = root["total_size"].asString();

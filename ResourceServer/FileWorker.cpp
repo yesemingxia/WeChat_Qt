@@ -15,31 +15,7 @@
 FileWorker::FileWorker() :_b_stop(false)
 {
 	RegisterHandlers();
-	/*_work_thread = std::thread([this]() {
-		while (!_b_stop) {
-			std::unique_lock<std::mutex> lock(_mtx);
-			_cv.wait(lock, [this]() {
-				if (_b_stop) {
-					return true;
-				}
-
-				if (_task_que.empty()) {
-					return false;
-				}
-
-				return true;
-				});
-
-			if (_b_stop) {
-				break;
-			}
-
-			auto task_call = _task_que.front();
-			_task_que.pop();
-			task_call();
-		}
-
-		});*/
+	
 	_work_thread = std::thread([this]() {
 		while (true) {
 			std::function<void()> job;
@@ -615,30 +591,6 @@ void FileWorker::task_callback(std::shared_ptr<FileTask> task)
 
 DownloadWorker::DownloadWorker() :_b_stop(false)
 {
-	/*_work_thread = std::thread([this]() {
-		while (!_b_stop) {
-			std::unique_lock<std::mutex> lock(_mtx);
-			_cv.wait(lock, [this]() {
-				if (_b_stop) {
-					return true;
-				}
-
-				if (_task_que.empty()) {
-					return false;
-				}
-
-				return true;
-				});
-
-			if (_b_stop) {
-				break;
-			}
-
-			auto task = _task_que.front();
-			_task_que.pop();
-			task_callback(task);
-		}
-		});*/
 	_work_thread = std::thread([this]() {
 		while (true) {
 			std::shared_ptr<DownloadTask> task;

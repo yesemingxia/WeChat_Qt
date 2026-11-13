@@ -51,44 +51,44 @@ public:
         }
     }
 
-    // 适配新版：返回 mysqlx::Session 替代 sql::Connection
     std::unique_ptr<mysqlx::Session> getConnection() {
+    std::unique_ptr<SqlConnection> sql_con;      // 先声明，默认是空的
+    {
         std::unique_lock<std::mutex> lock(mutex_);
-        cond_.wait(lock, [this] {
-            if (b_stop_) {
-                return true;
-            }
-            return !pool_.empty();
-            });
-
-        if (b_stop_) {
-            return nullptr;
+        if (!cond_.wait_for(lock, std::chrono::seconds(5),
+                [this] { return b_stop_ || !pool_.empty(); })) {
+            return nullptr;                       // 超时；return 时 lock 析构会自动解锁
         }
-
-        // 取出封装的 SqlConnection
-        std::unique_ptr<SqlConnection> sql_con(std::move(pool_.front()));
+        if (b_stop_) {
+            return nullptr;                       // 同上，自动解锁
+        }
+        sql_con = std::move(pool_.front());       // 所有权转移到本线程
         pool_.pop();
+    }                                             // ← 锁在这里释放
 
-        // 更新最后使用时间
-        sql_con->_last_time = getCurrentTime();
-        // 剥离 Session 返回
-        return std::move(sql_con->_con);
-    }
+    // 下面两行在锁外执行，是安全的
+    sql_con->_last_time = getCurrentTime();
+    return std::move(sql_con->_con);
+}
 
     // 适配新版：接收 mysqlx::Session 替代 sql::Connection
     void returnConnection(std::unique_ptr<mysqlx::Session> con) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        if (b_stop_) {
-            return;
-        }
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            if (b_stop_) {
+                return;
+            }
         // 封装为 SqlConnection，记录归还时间
         pool_.push(std::make_unique<SqlConnection>(std::move(con), getCurrentTime()));
+        }
+
         cond_.notify_one();
     }
 
     void Close() {
         b_stop_ = true;
         cond_.notify_all();
+        check_cv_.notify_all();
         // 等待检查线程退出
         if (check_thread_.joinable()) {
             check_thread_.join();
@@ -112,125 +112,247 @@ private:
         ).count();
     }
 
-    // 补回：检查过期连接的核心线程函数（原 check_thread 逻辑）
-    void checkExpiredConnections() {
-        while (!b_stop_) {
-            // 每 30 秒检查一次
-            std::this_thread::sleep_for(std::chrono::seconds(30));
+    // void checkConnectionPro() {
+    //     //1先读取“目标处理数”
+    //     size_t targetCount;
+    //     {
+    //         std::lock_guard<std::mutex> lock(mutex_);
+    //         targetCount = pool_.size();
+    //     }
 
-            std::unique_lock<std::mutex> lock(mutex_);
-            int64_t now = getCurrentTime();
-            std::queue<std::unique_ptr<SqlConnection>> new_pool;
+    //     //2 当前已经处理数
+    //     size_t processedCount = 0;
+    //     auto now = std::chrono::system_clock::now().time_since_epoch();
+    //     long long timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
 
-            // 遍历所有连接，清理过期的
-            while (!pool_.empty()) {
-                std::unique_ptr<SqlConnection> con = std::move(pool_.front());
-                pool_.pop();
+    //     while (processedCount < targetCount) {
+    //         std::unique_ptr<SqlConnection> con;
+    //         {
+    //             std::lock_guard<std::mutex> lock(mutex_);
+    //             if (pool_.empty()) {
+    //                 break;
+    //             }
+    //             con = std::move(pool_.front());
+    //             pool_.pop();
+    //         }
+    //         bool health = true;
+    //         //解锁后做检查 
+    //         if (timestamp - con->_last_time >= 5000) {
+    //             try {
+    //                 con->_con->sql("SELECT 1").execute();   // con->_con 是 mysqlx::Session
+    //                 con->_last_time = timestamp;
+    //             }
+    //             catch (mysqlx::Error& e) {
+    //                 std::cout << "expired connection replaced" << std::endl;
+    //                 health = false;
+    //                 _fail_count++;
+    //             }
+    //         }
+    //         if(health)
+    //         {
+    //             std::lock_guard<std::mutex> lock(mutex_);
+    //             pool_.push(std::move(con));
+    //             cond_.notify_one();
+    //         }
 
-                // 判断是否过期：当前时间 - 最后使用时间 > 超时时间
-                if (now - con->_last_time < timeout_) {
-                    // 未过期，保留
-                    new_pool.push(std::move(con));
+    //         ++processedCount;
+        
+    //     }
+        
+    //     while (_fail_count > 0) {
+    //         auto b_res = reconnect(timestamp);
+    //         if (b_res) {
+    //             _fail_count--;
+    //         }
+    //         else {
+    //             break;
+    //         }
+    //     }
+
+    // }
+
+    // bool reconnect(long long timestamp) {
+    //     try {
+    //         std::unique_ptr<mysqlx::Session> new_con(
+    //             new mysqlx::Session(host_, port_, user_, pass_)
+    //         );
+    //         new_con->getSchema(schema_);
+    //         auto newCon = std::make_unique<SqlConnection>(std::move(new_con), timestamp);
+    //         {
+    //             std::lock_guard<std::mutex> lock(mutex_);
+    //             pool_.push(std::move(newCon));
+    //         }
+    //         cond_.notify_one();
+    //         return true;
+    //     }
+    //     catch (mysqlx::Error& e) {
+    //         std::cout << "Reconnect failed,error is" << e.what();
+    //         return false;
+    //     }
+
+    // }
+
+    void checkConnectionPro()
+        {
+            while (!b_stop_.load()) {
+                // 这个函数是 std::thread 的入口，异常一旦逃出线程函数就是 std::terminate，
+                // 整个 ChatServer 会被直接 abort，所以这里必须兜住。
+                try {
+                    doHealthCheckPass();
                 }
-                else {
-                    // 过期，丢弃并重新创建一个新连接补充
-                    try {
-                        std::unique_ptr<mysqlx::Session> new_con(
-                            new mysqlx::Session(host_, port_, user_, pass_)
-                        );
-                        new_con->getSchema(schema_);
-                        new_pool.push(std::make_unique<SqlConnection>(std::move(new_con), now));
-                        std::cout << "expired connection replaced" << std::endl;
-                    }
-                    catch (const mysqlx::Error& e) {
-                        std::cout << "replace expired connection failed: " << e.what() << std::endl;
-                    }
+                catch (const std::exception& e) {
+                    std::cerr << "[mysqlpool] health pass exception: "
+                              << e.what() << std::endl;
                 }
+                catch (...) {
+                    std::cerr << "[mysqlpool] health pass unknown exception" << std::endl;
+                }
+
+                // 每 30 秒巡检一次；Close() 会通过 check_cv_ 立即唤醒线程
+                std::unique_lock<std::mutex> lock(check_mtx_);
+                check_cv_.wait_for(
+                    lock,
+                    std::chrono::seconds(30),
+                    [this]() { return b_stop_.load(); }
+                );
             }
-
-            // 替换为清理后的连接池
-            pool_.swap(new_pool);
         }
-    }
 
-    void checkConnectionPro() {
-        //1先读取“目标处理数”
-        size_t targetCount;
+    void doHealthCheckPass()
+    {
+        if (b_stop_.load()) {
+            return;
+        }
+
+        const long long timestamp = getCurrentTime();
+
+        std::size_t targetCount = 0;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             targetCount = pool_.size();
         }
 
-        //2 当前已经处理数
-        size_t processedCount = 0;
-        auto now = std::chrono::system_clock::now().time_since_epoch();
-        long long timestamp = std::chrono::duration_cast<std::chrono::seconds>(now).count();
+        // 每轮最多检查进入本轮时的空闲连接数量
+        for (std::size_t i = 0;
+            i < targetCount && !b_stop_.load();
+            ++i) {
 
-        while (processedCount < targetCount) {
             std::unique_ptr<SqlConnection> con;
+
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 if (pool_.empty()) {
                     break;
                 }
+
                 con = std::move(pool_.front());
                 pool_.pop();
             }
+
             bool health = true;
-            //解锁后做检查 
-            if (timestamp - con->_last_time >= 5) {
+
+            // 只有空闲超过 5 秒的连接才执行探活
+            if (timestamp - con->_last_time >= 5000) {
                 try {
-                    con->_con->sql("SELECT 1").execute();   // con->_con 是 mysqlx::Session
-                    con->_last_time = timestamp;
+                    con->_con->sql("SELECT 1").execute();
+                    con->_last_time = getCurrentTime();
                 }
-                catch (mysqlx::Error& e) {
-                    std::cout << "expired connection replaced" << std::endl;
+                catch (const mysqlx::Error& e) {
+                    std::cerr
+                        << "[mysqlpool] health check failed: "
+                        << e.what() << std::endl;
+
                     health = false;
-                    _fail_count++;
+
+                    // 记录一条确认损坏、等待补回的连接
+                    _fail_count.fetch_add(1);
+                }
+                catch (const std::exception& e) {
+                    // mysqlx::Error 派生自 std::exception，会先被上面的分支接住；
+                    // 这里兜住其余异常（比如 bad_alloc），否则会逃出检查线程。
+                    std::cerr
+                        << "[mysqlpool] health check exception: "
+                        << e.what() << std::endl;
+
+                    health = false;
+                    _fail_count.fetch_add(1);
                 }
             }
-            if(health)
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                pool_.push(std::move(con));
+
+            if (health) {
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+
+                    // 关闭过程中不再把连接放回池子
+                    if (b_stop_.load()) {
+                        return;
+                    }
+
+                    pool_.push(std::move(con));
+                }
+
                 cond_.notify_one();
             }
 
-            ++processedCount;
-        
+            // health == false 时，con 在本轮循环结束时自动销毁
         }
-        
-        while (_fail_count > 0) {
-            auto b_res = reconnect(timestamp);
-            if (b_res) {
-                _fail_count--;
-            }
-            else {
+
+        // 只补实际损坏的连接。
+        // 不能使用 pool_.size() < poolSize_，
+        // 因为业务线程借走的连接不在 pool_ 中。
+        while (!b_stop_.load() && _fail_count.load() > 0) {
+            if (!reconnect(getCurrentTime())) {
+                // MySQL 尚未恢复，保留失败数量，30 秒后继续补连
                 break;
             }
-        }
 
+            _fail_count.fetch_sub(1);
+        }
     }
 
-    bool reconnect(long long timestamp) {
+    bool reconnect(long long timestamp)
+    {
         try {
             std::unique_ptr<mysqlx::Session> new_con(
                 new mysqlx::Session(host_, port_, user_, pass_)
             );
+
             new_con->getSchema(schema_);
-            auto newCon = std::make_unique<SqlConnection>(std::move(new_con), timestamp);
+
+            std::unique_ptr<SqlConnection> newCon =
+                std::make_unique<SqlConnection>(
+                    std::move(new_con),
+                    timestamp
+                );
+
             {
                 std::lock_guard<std::mutex> lock(mutex_);
+
+                // 新建连接期间可能调用了 Close()
+                if (b_stop_.load()) {
+                    return false;
+                }
+
                 pool_.push(std::move(newCon));
             }
+
+            cond_.notify_one();
             return true;
         }
-        catch (mysqlx::Error& e) {
-            std::cout << "Reconnect failed,error is" << e.what();
+        catch (const mysqlx::Error& e) {
+            std::cerr
+                << "[mysqlpool] reconnect failed: "
+                << e.what() << std::endl;
             return false;
         }
-
+        catch (const std::exception& e) {
+            std::cerr
+                << "[mysqlpool] reconnect exception: "
+                << e.what() << std::endl;
+            return false;
+        }
     }
+
 
     // 成员变量补充（补回 check_thread 相关）
     std::string host_;
@@ -245,6 +367,8 @@ private:
     std::condition_variable cond_;
     std::atomic<bool> b_stop_;
     std::thread check_thread_;  // 连接检查线程（补回）
+    std::mutex  check_mtx_;                 // 只给检查线程的等待用，不和业务锁混用
+    std::condition_variable check_cv_;      // 让 Close() 能立刻叫醒检查线程
     std::atomic<int> _fail_count;
 };
 
